@@ -1,0 +1,10 @@
+# لا ترفع المفاتيح أو ملفات البناء
+local.properties
+.gradle/
+build/
+*.apk
+*.aab
+.idea/
+*.jks
+*.keystore
+.env

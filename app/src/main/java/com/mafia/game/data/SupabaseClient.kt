@@ -1,0 +1,109 @@
+package com.mafia.game.data
+
+import android.content.Context
+import com.mafia.game.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+/**
+ * عميل Supabase خفيف عبر REST (بدون مكتبات إضافية).
+ * يستعمل المفتاح العام فقط. الصلاحيات الفعلية تحددها سياسات RLS والدوال في قاعدة البيانات.
+ * ملاحظة: الجلسة تُحفظ حاليًا في تخزين التطبيق الخاص؛ نرقّيها لتخزين مشفّر في مرحلة لاحقة.
+ */
+class SupabaseClient(context: Context) {
+    private val url = BuildConfig.SUPABASE_URL.trimEnd('/')
+    private val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY
+    private val prefs = context.getSharedPreferences("supabase_session", Context.MODE_PRIVATE)
+
+    val isConfigured: Boolean get() = url.startsWith("https://") && key.isNotBlank()
+
+    class ApiException(val status: Int, message: String) : Exception(message)
+
+    /** اختبار الاتصال: دالة ping لا تلمس أي بيانات. */
+    suspend fun ping(): String = ok(http("POST", "/rest/v1/rpc/ping", "{}"))
+
+    /** يضمن وجود جلسة صالحة (تجديد، أو دخول مجهول جديد) ويعيد معرّف المستخدم. */
+    suspend fun ensureSession(): String {
+        val expiresAt = prefs.getLong("expires_at", 0L)
+        val uid = prefs.getString("user_id", null)
+        if (uid != null && prefs.getString("access_token", null) != null &&
+            expiresAt > System.currentTimeMillis() / 1000 + 60
+        ) return uid
+
+        val refresh = prefs.getString("refresh_token", null)
+        if (refresh != null) {
+            val (code, body) = http(
+                "POST", "/auth/v1/token?grant_type=refresh_token",
+                JSONObject().put("refresh_token", refresh).toString()
+            )
+            if (code in 200..299) return saveSession(JSONObject(body))
+            prefs.edit().clear().apply() // الجلسة لم تعد صالحة
+        }
+        // يتطلب تفعيل Anonymous sign-ins في لوحة Supabase
+        val (code, body) = http("POST", "/auth/v1/signup", "{}")
+        if (code !in 200..299) throw ApiException(code, errorText(body))
+        return saveSession(JSONObject(body))
+    }
+
+    /** ملفي الشخصي (RLS تسمح بقراءة الملفات للمسجّلين). */
+    suspend fun myProfile(): String {
+        val uid = ensureSession()
+        return ok(
+            http("GET", "/rest/v1/profiles?select=id,username,display_name&id=eq.$uid", null, auth = true)
+        )
+    }
+
+    fun signOutLocal() = prefs.edit().clear().apply()
+
+    // ---------- داخلي ----------
+    private fun saveSession(json: JSONObject): String {
+        val uid = json.getJSONObject("user").getString("id")
+        prefs.edit()
+            .putString("access_token", json.getString("access_token"))
+            .putString("refresh_token", json.getString("refresh_token"))
+            .putString("user_id", uid)
+            .putLong("expires_at", System.currentTimeMillis() / 1000 + json.optLong("expires_in", 3600))
+            .apply()
+        return uid
+    }
+
+    private fun ok(r: Pair<Int, String>): String {
+        if (r.first !in 200..299) throw ApiException(r.first, errorText(r.second))
+        return r.second
+    }
+
+    private fun errorText(body: String): String = try {
+        val j = JSONObject(body)
+        j.optString("msg").ifBlank { j.optString("message") }.ifBlank { j.optString("error_description") }
+            .ifBlank { body.take(200) }
+    } catch (e: Exception) { body.take(200) }
+
+    private suspend fun http(
+        method: String, path: String, body: String?, auth: Boolean = false
+    ): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val conn = URL(url + path).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = method
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 15_000
+            conn.setRequestProperty("apikey", key)
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "application/json")
+            if (auth) prefs.getString("access_token", null)?.let {
+                conn.setRequestProperty("Authorization", "Bearer $it")
+            }
+            if (body != null) {
+                conn.doOutput = true
+                conn.outputStream.use { it.write(body.toByteArray()) }
+            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            code to (stream?.bufferedReader()?.use { it.readText() } ?: "")
+        } finally {
+            conn.disconnect()
+        }
+    }
+}
