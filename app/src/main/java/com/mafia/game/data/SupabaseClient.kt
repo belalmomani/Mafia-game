@@ -56,6 +56,20 @@ class SupabaseClient(context: Context) {
         )
     }
 
+    /** قراءة من REST بصلاحيات المستخدم (تطبّق RLS). */
+    suspend fun get(path: String): String {
+        ensureSession()
+        return ok(http("GET", path, null, auth = true))
+    }
+
+    /** استدعاء دالة خادمية (RPC). كل منطق اللعبة يمر من هنا. */
+    suspend fun rpc(name: String, body: JSONObject = JSONObject()): String {
+        ensureSession()
+        return ok(http("POST", "/rest/v1/rpc/$name", body.toString(), auth = true))
+    }
+
+    fun currentUserId(): String? = prefs.getString("user_id", null)
+
     fun signOutLocal() = prefs.edit().clear().apply()
 
     // ---------- داخلي ----------

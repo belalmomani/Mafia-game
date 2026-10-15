@@ -6,12 +6,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// القيم تُقرأ من local.properties (محليًا) أو من متغيرات البيئة (GitHub Actions secrets).
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
+// الأولوية: local.properties ثم متغيرات البيئة (GitHub secrets) ثم supabase.properties (المرفوع في المستودع).
+fun loadProps(file: String) = Properties().apply {
+    val f = rootProject.file(file)
     if (f.exists()) f.inputStream().use { load(it) }
 }
-fun cfg(name: String): String = localProps.getProperty(name) ?: System.getenv(name) ?: ""
+val localProps = loadProps("local.properties")
+val sharedProps = loadProps("supabase.properties")
+fun cfg(name: String): String =
+    localProps.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+        ?: sharedProps.getProperty(name)?.trim().orEmpty()
 
 android {
     namespace = "com.mafia.game"
