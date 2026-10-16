@@ -35,30 +35,26 @@ import org.json.JSONObject
 private data class RoomItem(val id: String, val name: String, val count: Int, val max: Int)
 private data class MemberItem(val userId: String, val role: String, val name: String)
 
-private fun parseRooms(json: String): List<RoomItem> {
-    val a = JSONArray(json)
-    return (0 until a.length()).map {
-        val o = a.getJSONObject(it)
-        RoomItem(o.getString("id"), o.getString("name"), o.optInt("member_count"), o.optInt("max_players"))
+private fun parseRooms(json: String): List<RoomItem> =
+    JSONArray(json).objects().map {
+        RoomItem(it.getString("id"), it.getString("name"), it.optInt("member_count"), it.optInt("max_players"))
     }
-}
 
-private fun parseMembers(json: String): List<MemberItem> {
-    val a = JSONArray(json)
-    return (0 until a.length()).map {
-        val o = a.getJSONObject(it)
-        val p = o.optJSONObject("profiles")
-        val name = p?.optString("display_name").orEmpty().ifBlank { p?.optString("username").orEmpty() }
-        MemberItem(o.getString("user_id"), o.getString("role"), name.ifBlank { "لاعب" })
+private fun parseMembers(json: String): List<MemberItem> =
+    JSONArray(json).objects().map {
+        val p = it.optJSONObject("profiles")
+        val name = (p?.strOrNull("display_name") ?: "").ifBlank { p?.strOrNull("username") ?: "" }
+        MemberItem(it.getString("user_id"), it.getString("role"), name.ifBlank { "لاعب" })
     }
-}
 
 @Composable
 fun HomeScreen(client: SupabaseClient, onOpenRoom: (String) -> Unit, onDebug: () -> Unit) {
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf(listOf<RoomItem>()) }
+    var myRooms by remember { mutableStateOf(listOf<RoomItem>()) }
     var msg by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var myName by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
     var max by remember { mutableStateOf("10") }
@@ -71,15 +67,52 @@ fun HomeScreen(client: SupabaseClient, onOpenRoom: (String) -> Unit, onDebug: ()
             busy = false
         }
     }
-    fun refresh() = act {
+    suspend fun loadAll() {
+        val uid = client.ensureSession()
+        JSONArray(client.get("/rest/v1/profiles?select=display_name,username&id=eq.$uid")).optJSONObject(0)?.let {
+            val dn = it.strOrNull("display_name") ?: ""
+            if (myName.isBlank()) myName = dn
+        }
         rooms = parseRooms(client.get(
             "/rest/v1/rooms?select=id,name,member_count,max_players&visibility=eq.public&status=eq.open&order=created_at.desc&limit=30"))
+        myRooms = JSONArray(client.get(
+            "/rest/v1/room_members?select=room_id,rooms(name,status,member_count,max_players)&user_id=eq.$uid&status=eq.active"
+        )).objects().mapNotNull { o ->
+            val r = o.optJSONObject("rooms") ?: return@mapNotNull null
+            if (r.optString("status") == "closed") null
+            else RoomItem(o.getString("room_id"), r.optString("name"), r.optInt("member_count"), r.optInt("max_players"))
+        }
     }
+    fun refresh() = act { loadAll() }
     LaunchedEffect(Unit) { if (client.isConfigured) refresh() }
 
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("الغرف", style = MaterialTheme.typography.titleLarge)
+        Text("المافيا", style = MaterialTheme.typography.titleLarge)
         if (msg.isNotBlank()) Text(msg, color = MaterialTheme.colorScheme.error)
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("اسمك في اللعبة", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(myName, { myName = it.take(30) }, label = { Text("الاسم المعروض") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                Button(enabled = !busy && myName.trim().length >= 2, modifier = Modifier.fillMaxWidth(), onClick = {
+                    act { client.rpc("set_display_name", JSONObject().put("p_name", myName.trim())); msg = "تم حفظ الاسم" }
+                }) { Text("حفظ الاسم") }
+            }
+        }
+
+        if (myRooms.isNotEmpty()) {
+            Text("غرفك الحالية", style = MaterialTheme.typography.titleMedium)
+            myRooms.forEach { r ->
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column { Text(r.name, style = MaterialTheme.typography.titleSmall); Text("${r.count}/${r.max} لاعبين") }
+                        Button(onClick = { onOpenRoom(r.id) }) { Text("فتح") }
+                    }
+                }
+            }
+        }
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -142,18 +175,22 @@ fun HomeScreen(client: SupabaseClient, onOpenRoom: (String) -> Unit, onDebug: ()
 }
 
 @Composable
-fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit) {
+fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit, onGame: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var room by remember { mutableStateOf<JSONObject?>(null) }
     var members by remember { mutableStateOf(listOf<MemberItem>()) }
     var msg by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var fast by remember { mutableStateOf(false) }
     val me = client.currentUserId()
 
-    // تحديث دوري كل 3 ثوانٍ (Realtime في مرحلة لاحقة)
+    // تحديث دوري كل 3 ثوانٍ؛ وإذا بدأت لعبة في الغرفة ينتقل الجميع إليها تلقائيًا
     LaunchedEffect(roomId) {
         while (true) {
             try {
+                val g = JSONArray(client.get(
+                    "/rest/v1/games?select=id&room_id=eq.$roomId&status=eq.in_progress&limit=1")).optJSONObject(0)
+                if (g != null) { onGame(g.getString("id")); return@LaunchedEffect }
                 room = JSONArray(client.get("/rest/v1/rooms?select=*&id=eq.$roomId")).optJSONObject(0)
                 members = parseMembers(client.get(
                     "/rest/v1/room_members?select=user_id,role,profiles(username,display_name)&room_id=eq.$roomId&status=eq.active&order=joined_at.asc"))
@@ -182,7 +219,29 @@ fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit) {
             val you = if (m.userId == me) " — أنت" else ""
             Card(Modifier.fillMaxWidth()) { Text(m.name + role + you, Modifier.padding(12.dp)) }
         }
-        Text("بدء اللعبة يأتي في المرحلة القادمة.")
+
+        val isOwner = r != null && r.optString("owner_id") == me
+        if (isOwner) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Switch(fast, { fast = it }); Text("جولات سريعة للتجربة (20 ثانية)")
+            }
+            Button(enabled = !busy && members.size >= 4, modifier = Modifier.fillMaxWidth(), onClick = {
+                scope.launch {
+                    busy = true; msg = ""
+                    try {
+                        val body = client.rpc("start_game", JSONObject().put("p_room_id", roomId)
+                            .put("p_night_seconds", if (fast) 20 else 60)
+                            .put("p_day_seconds", if (fast) 20 else 120)
+                            .put("p_vote_seconds", if (fast) 20 else 60))
+                        onGame(body.trim().trim('"'))
+                    } catch (e: Exception) { msg = friendlyError(e) }
+                    busy = false
+                }
+            }) { Text(if (members.size >= 4) "ابدأ اللعبة" else "يلزم 4 لاعبين على الأقل") }
+        } else {
+            Text("بانتظار مالك الغرفة ليبدأ اللعبة...")
+        }
+
         OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
             scope.launch {
                 busy = true

@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mafia.game.data.SupabaseClient
 import com.mafia.game.ui.ConnectionScreen
+import com.mafia.game.ui.GameScreen
 import com.mafia.game.ui.HomeScreen
 import com.mafia.game.ui.LobbyScreen
 
@@ -26,6 +27,7 @@ private sealed interface Screen {
     data object Home : Screen
     data object Debug : Screen
     data class Lobby(val roomId: String) : Screen
+    data class Game(val gameId: String, val roomId: String) : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -45,7 +47,9 @@ private fun App(client: SupabaseClient) {
         when (val s = screen) {
             Screen.Home -> HomeScreen(client, onOpenRoom = { screen = Screen.Lobby(it) }, onDebug = { screen = Screen.Debug })
             Screen.Debug -> ConnectionScreen(client, onBack = { screen = Screen.Home })
-            is Screen.Lobby -> LobbyScreen(client, s.roomId, onBack = { screen = Screen.Home })
+            is Screen.Lobby -> LobbyScreen(client, s.roomId, onBack = { screen = Screen.Home },
+                onGame = { screen = Screen.Game(it, s.roomId) })
+            is Screen.Game -> GameScreen(client, s.gameId, onExit = { screen = Screen.Home })
         }
     }
 }
