@@ -4,6 +4,8 @@
 -- شغّله كاملًا؛ النتيجة الأخيرة جدول PASS/FAIL (الإخفاقات تظهر أولًا).
 -- ============================================================
 
+-- نحذف الغرف أولًا (تحذف ألعابها ونتائجها بالتتابع)، ثم المستخدمين؛ لتفادي تعارض ترتيب الحذف داخل نفس المعاملة
+delete from public.rooms where owner_id in (select id from auth.users where email like '%@test.mafia.invalid');
 delete from auth.users where email like '%@test.mafia.invalid';
 
 drop table if exists pg_temp.t_results;
@@ -103,16 +105,41 @@ select pg_temp.expect('عضو عادي لا يبدأ اللعبة',
 select pg_temp.expect('عضو عادي لا يعدّل الإعدادات',
   pg_temp.run_as(pg_temp.u(2), format($q$select (public.update_room_settings(%L,'x2'))::text$q$, pg_temp.ctx('room'))), 'ERR:%not_room_owner');
 
+create or replace function pg_temp.to_voting(p_game text, p_user text) returns text language plpgsql as $$
+declare i int := 0; v_phase text;
+begin
+  loop
+    select phase::text into v_phase from public.games where id = p_game::uuid;
+    exit when v_phase = 'voting' or i > 40;
+    update public.games set phase_ends_at = now() - interval '1 second' where id = p_game::uuid;
+    perform pg_temp.run_as(p_user, format('select public.advance_phase(%L)', p_game));
+    i := i + 1;
+  end loop;
+  return v_phase;
+end $$;
+
+create or replace function pg_temp.vote_all(p_game text, p_target text, p_alt text) returns int language plpgsql as $$
+declare r record; n int := 0;
+begin
+  for r in select user_id::text as u from public.game_players where game_id = p_game::uuid and is_alive loop
+    perform pg_temp.run_as(r.u, format('select public.cast_vote(%L,%L)::text', p_game, case when r.u = p_target then p_alt else p_target end));
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
 -- ---------- 3) بدء اللعبة وسرية الأدوار ----------
 select pg_temp.setctx('game', pg_temp.run_as(pg_temp.u(1), format('select public.start_game(%L, 30, 30, 30, true)::text', pg_temp.ctx('room'))));
-select pg_temp.setctx('mafia',     (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'red_mafia'));
-select pg_temp.setctx('girl',      (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'girl'));
+select pg_temp.setctx('mafia', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'red_mafia'));
+select pg_temp.setctx('girl',  (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'girl'));
 select pg_temp.setctx('c1', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'citizen' order by user_id limit 1));
 select pg_temp.setctx('c2', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'citizen' order by user_id desc limit 1));
 select pg_temp.setctx('c3', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'citizen' and user_id::text not in (pg_temp.ctx('c1'), pg_temp.ctx('c2')) limit 1));
 
-select pg_temp.expect('وُزّعت 5 أدوار (مافيا أحمر + بنت + 3 مواطنين)',
+select pg_temp.expect('وُزّعت 5 أدوار (مافيا أحمر واحد + بنت + 3 مواطنين)',
   (select count(*)::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid), '5');
+select pg_temp.expect('اللعبة تبدأ بمرحلة التبرير',
+  pg_temp.run_as(pg_temp.u(1), format('select phase::text from public.games where id=%L', pg_temp.ctx('game'))), 'OK:day');
 select pg_temp.expect('المالك لا يقرأ game_secrets',
   pg_temp.run_as(pg_temp.u(1), 'select count(*)::text from public.game_secrets'), 'ERR:42501:%');
 select pg_temp.expect('لاعب لا يقرأ game_secrets',
@@ -137,78 +164,101 @@ select pg_temp.expect('get_my_role: اللاعب يرى دوره فقط (صف و
   pg_temp.run_as(pg_temp.u(1), format('select count(*)::text from public.get_my_role(%L)', pg_temp.ctx('game'))), 'OK:1');
 select pg_temp.expect('get_my_role: الغريب لا يحصل على شيء',
   pg_temp.run_as(pg_temp.u(7), format('select count(*)::text from public.get_my_role(%L)', pg_temp.ctx('game'))), 'OK:0');
-select pg_temp.expect('دور المافيا يطابق الخادم',
+select pg_temp.expect('دور المافيا الأحمر يطابق الخادم',
   pg_temp.run_as(pg_temp.ctx('mafia'), format('select my_role::text from public.get_my_role(%L)', pg_temp.ctx('game'))), 'OK:red_mafia');
 select pg_temp.expect('غير المافيا لا يرى زملاء المافيا',
   pg_temp.run_as(pg_temp.ctx('girl'), format('select (teammates is null)::text from public.get_my_role(%L)', pg_temp.ctx('game'))), 'OK:true');
 select pg_temp.expect('لا دور مكشوف قبل الإقصاء',
   pg_temp.run_as(pg_temp.u(1), format('select count(revealed_role)::text from public.game_players where game_id=%L', pg_temp.ctx('game'))), 'OK:0');
 
--- ---------- 4) الليل ----------
-select pg_temp.expect('لا تصويت أثناء الليل',
+-- ---------- 4) التبرير (دور لكل لاعب) ----------
+select pg_temp.setctx('spk', (select speech_order[speech_idx + 1]::text from public.games where id = pg_temp.ctx('game')::uuid));
+select pg_temp.setctx('nonspk', (select user_id::text from public.game_players where game_id = pg_temp.ctx('game')::uuid and user_id::text <> pg_temp.ctx('spk') limit 1));
+select pg_temp.expect('عدد المتحدثين = 5',
+  (select array_length(speech_order, 1)::text from public.games where id = pg_temp.ctx('game')::uuid), '5');
+select pg_temp.expect('لا تصويت أثناء التبرير',
   pg_temp.run_as(pg_temp.ctx('c2'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%not_voting_phase');
-select pg_temp.expect('المواطن بلا قدرة ليلية',
-  pg_temp.run_as(pg_temp.ctx('c2'), format($q$select public.submit_night_action(%L,'skip')::text$q$, pg_temp.ctx('game'))), 'ERR:%no_night_ability');
-select pg_temp.expect('المواطن لا يغتال',
-  pg_temp.run_as(pg_temp.ctx('c2'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'ERR:%action_not_allowed');
-select pg_temp.expect('المافيا لا تغتال نفسها',
-  pg_temp.run_as(pg_temp.ctx('mafia'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%cannot_target_self');
-select pg_temp.expect('غير اللاعب لا يرسل إجراءً',
-  pg_temp.run_as(pg_temp.u(7), format($q$select public.submit_night_action(%L,'skip')::text$q$, pg_temp.ctx('game'))), 'ERR:%not_a_player');
-select pg_temp.expect('المافيا تغتال c1',
-  pg_temp.run_as(pg_temp.ctx('mafia'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
-select pg_temp.expect('البنت تحمي c2',
-  pg_temp.run_as(pg_temp.ctx('girl'), format($q$select public.submit_night_action(%L,'protect',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('c2'))), 'OK:true');
-select pg_temp.expect('اكتمال الإجراءات ينقل للنهار مبكرًا',
-  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:day');
-select pg_temp.expect('c1 مات وكُشف دوره',
-  pg_temp.run_as(pg_temp.u(1), format('select (is_alive::text || coalesce(revealed_role::text, '''')) from public.game_players where game_id=%L and user_id=%L', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:falsecitizen');
-select pg_temp.expect('نتيجة الليل العامة مرئية للاعبين',
-  pg_temp.run_as(pg_temp.ctx('c2'), format($q$select count(*)::text from public.game_events where game_id=%L and event_type='night_result'$q$, pg_temp.ctx('game'))), 'OK:1');
+select pg_temp.expect('لا إجراء ليلي أثناء النهار',
+  pg_temp.run_as(pg_temp.ctx('mafia'), format($q$select public.submit_night_action(%L,'skip')::text$q$, pg_temp.ctx('game'))), 'ERR:%not_night_phase');
+select pg_temp.expect('غير المتحدث لا ينهي الدور',
+  pg_temp.run_as(pg_temp.ctx('nonspk'), format('select public.end_speech(%L)::text', pg_temp.ctx('game'))), 'ERR:%not_your_turn');
+select pg_temp.expect('المتحدث ينهي دوره',
+  pg_temp.run_as(pg_temp.ctx('spk'), format('select public.end_speech(%L)::text', pg_temp.ctx('game'))), 'OK:true');
+select pg_temp.expect('انتقل الدور للمتحدث التالي',
+  (select speech_idx::text from public.games where id = pg_temp.ctx('game')::uuid), '1');
+select pg_temp.expect('بعد انتهاء كل الأدوار يبدأ التصويت',
+  pg_temp.to_voting(pg_temp.ctx('game'), pg_temp.ctx('c2')), 'voting');
 
--- ---------- 5) التصويت ----------
-update public.games set phase_ends_at = now() - interval '1 second' where id = pg_temp.ctx('game')::uuid;
-select pg_temp.expect('انتهاء النهار ينقل للتصويت',
-  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:voting');
-select pg_temp.expect('الميت لا يصوّت',
-  pg_temp.run_as(pg_temp.ctx('c1'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%player_dead');
-select pg_temp.expect('غير اللاعب لا يصوّت',
+-- ---------- 5) التصويت الأول (يخرج مواطن فيأتي الليل) ----------
+select pg_temp.expect('الغريب لا يصوّت',
   pg_temp.run_as(pg_temp.u(7), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%not_a_player');
 select pg_temp.expect('لا تصويت لنفسك',
   pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%cannot_vote_self');
-select pg_temp.expect('لا تصويت على ميت',
-  pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'ERR:%target_dead');
 select pg_temp.expect('التصويت الأول ينجح',
-  pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c2'))), 'OK:true');
+  pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
 select pg_temp.expect('التصويت المكرر لنفس الهدف مرفوض',
-  pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c2'))), 'ERR:%already_voted');
+  pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'ERR:%already_voted');
 select pg_temp.expect('تغيير الصوت مرفوض',
   pg_temp.run_as(pg_temp.ctx('mafia'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('girl'))), 'ERR:%already_voted');
 select pg_temp.expect('منع التكرار على مستوى القاعدة (UNIQUE)',
   pg_temp.run_as(null, format($q$with i as (insert into public.votes(game_id,round_no,voter_id,target_id) values (%L,1,%L,%L) returning 1) select count(*)::text from i$q$, pg_temp.ctx('game'), pg_temp.ctx('mafia'), pg_temp.ctx('girl')), 'postgres'), 'ERR:23505:%');
-select pg_temp.expect('البنت يصوّت على المافيا',
-  pg_temp.run_as(pg_temp.ctx('girl'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'OK:true');
+select pg_temp.expect('البنت تصوّت',
+  pg_temp.run_as(pg_temp.ctx('girl'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
 select pg_temp.expect('لا يرى اللاعب أصوات غيره أثناء التصويت',
   pg_temp.run_as(pg_temp.ctx('girl'), format('select count(*)::text from public.votes where game_id=%L and voter_id <> %L', pg_temp.ctx('game'), pg_temp.ctx('girl'))), 'OK:0');
 select pg_temp.expect('المالك لا يرى أصوات غيره قبل الحسم',
   pg_temp.run_as(pg_temp.u(1), format('select count(*)::text from public.votes where game_id=%L and voter_id <> %L', pg_temp.ctx('game'), pg_temp.u(1))), 'OK:0');
 select pg_temp.expect('advance_phase لا يتقدم قبل اكتمال الأصوات',
   pg_temp.run_as(pg_temp.ctx('girl'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:voting');
-select pg_temp.expect('المواطن c3 يصوّت',
-  pg_temp.run_as(pg_temp.ctx('c3'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'OK:true');
-select pg_temp.expect('المواطن c2 يصوّت',
-  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'OK:true');
-select pg_temp.expect('اكتمال الأصوات يحسم اللعبة (انتهت)',
-  pg_temp.run_as(pg_temp.ctx('girl'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:ended');
-select pg_temp.expect('الفائز: المواطنون',
-  pg_temp.run_as(pg_temp.u(1), format('select (status::text || winner::text) from public.games where id=%L', pg_temp.ctx('game'))), 'OK:finishedcitizens');
-select pg_temp.expect('نتيجة التصويت النهائية مرئية للأعضاء',
-  pg_temp.run_as(pg_temp.u(2), format('select count(*)::text from public.vote_results where game_id=%L', pg_temp.ctx('game'))), 'OK:1');
-select pg_temp.expect('المالك يرى سجل التصويت التفصيلي بعد الحسم (4 أصوات)',
-  pg_temp.run_as(pg_temp.u(1), format('select count(*)::text from public.votes where game_id=%L', pg_temp.ctx('game'))), 'OK:4');
+select pg_temp.expect('c2 يصوّت',
+  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
+select pg_temp.expect('c3 يصوّت',
+  pg_temp.run_as(pg_temp.ctx('c3'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
+select pg_temp.expect('c1 يصوّت على الأحمر فيكتمل التصويت',
+  pg_temp.run_as(pg_temp.ctx('c1'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'OK:true');
+select pg_temp.expect('خرج مواطن (c1) فجاء الليل',
+  pg_temp.run_as(pg_temp.ctx('girl'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:night');
+select pg_temp.expect('c1 مات بالتصويت وكُشف دوره',
+  pg_temp.run_as(pg_temp.u(1), format('select (is_alive::text || eliminated_by::text || coalesce(revealed_role::text, %L)) from public.game_players where game_id=%L and user_id=%L', '', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:falsevotecitizen');
+select pg_temp.expect('المالك يرى سجل التصويت التفصيلي بعد الحسم (5 أصوات)',
+  pg_temp.run_as(pg_temp.u(1), format('select count(*)::text from public.votes where game_id=%L', pg_temp.ctx('game'))), 'OK:5');
 select pg_temp.setctx('other_voter', (select voter_id::text from public.votes where game_id = pg_temp.ctx('game')::uuid and voter_id::text <> pg_temp.u(1) limit 1));
 select pg_temp.expect('العضو العادي يرى صوته فقط (public_votes=false)',
   pg_temp.run_as(pg_temp.ctx('other_voter'), format('select count(*)::text from public.votes where game_id=%L', pg_temp.ctx('game'))), 'OK:1');
+
+-- ---------- الليل: اغتيال فاشل لأن البنت حمت نفسها ----------
+select pg_temp.expect('لا تصويت أثناء الليل',
+  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%not_voting_phase');
+select pg_temp.expect('المواطن بلا قدرة ليلية',
+  pg_temp.run_as(pg_temp.ctx('c2'), format($q$select public.submit_night_action(%L,'skip')::text$q$, pg_temp.ctx('game'))), 'ERR:%no_night_ability');
+select pg_temp.expect('المواطن لا يغتال',
+  pg_temp.run_as(pg_temp.ctx('c2'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('c3'))), 'ERR:%action_not_allowed');
+select pg_temp.expect('المافيا لا تغتال نفسها',
+  pg_temp.run_as(pg_temp.ctx('mafia'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'ERR:%cannot_target_self');
+select pg_temp.expect('الميت لا يُستهدف',
+  pg_temp.run_as(pg_temp.ctx('mafia'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'ERR:%target_dead');
+select pg_temp.expect('المافيا الأحمر يغتال البنت',
+  pg_temp.run_as(pg_temp.ctx('mafia'), format($q$select public.submit_night_action(%L,'kill',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('girl'))), 'OK:true');
+select pg_temp.expect('البنت تحمي نفسها',
+  pg_temp.run_as(pg_temp.ctx('girl'), format($q$select public.submit_night_action(%L,'protect',%L)::text$q$, pg_temp.ctx('game'), pg_temp.ctx('girl'))), 'OK:true');
+select pg_temp.expect('اكتمال الإجراءات ينقل للنهار',
+  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:day');
+select pg_temp.expect('عملية اغتيال فاشلة تُسجَّل في نتيجة الليل',
+  pg_temp.run_as(pg_temp.ctx('c2'), format($q$select (payload ->> 'assassination_failed') from public.game_events where game_id=%L and event_type='night_result'$q$, pg_temp.ctx('game'))), 'OK:true');
+select pg_temp.expect('البنت نجت',
+  pg_temp.run_as(pg_temp.u(1), format('select is_alive::text from public.game_players where game_id=%L and user_id=%L', pg_temp.ctx('game'), pg_temp.ctx('girl'))), 'OK:true');
+
+-- ---------- النهار 2: يخرج الأحمر (آخر مافيا) فتنتهي اللعبة ----------
+select pg_temp.expect('تبرير النهار الثاني ثم التصويت',
+  pg_temp.to_voting(pg_temp.ctx('game'), pg_temp.ctx('c2')), 'voting');
+select pg_temp.expect('التصويت في دورة جديدة مسموح لمن صوّت سابقًا',
+  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'OK:true');
+select pg_temp.expect('بقية الأحياء يصوّتون (4 أحياء)',
+  pg_temp.vote_all(pg_temp.ctx('game'), pg_temp.ctx('mafia'), pg_temp.ctx('girl'))::text, '4');
+select pg_temp.expect('اللعبة انتهت: فاز المواطنون',
+  pg_temp.run_as(pg_temp.u(1), format('select (status::text || winner::text) from public.games where id=%L', pg_temp.ctx('game'))), 'OK:finishedcitizens');
+select pg_temp.expect('نتيجتا تصويت (دورتان)',
+  pg_temp.run_as(pg_temp.u(2), format('select count(*)::text from public.vote_results where game_id=%L', pg_temp.ctx('game'))), 'OK:2');
 select pg_temp.expect('كُشفت كل الأدوار بعد النهاية',
   pg_temp.run_as(pg_temp.u(2), format('select count(revealed_role)::text from public.game_players where game_id=%L', pg_temp.ctx('game'))), 'OK:5');
 select pg_temp.expect('لا تصويت بعد انتهاء اللعبة',
@@ -264,6 +314,8 @@ select pg_temp.expect('authenticated لا يملك صلاحية على game_secr
   has_table_privilege('authenticated', 'public.game_secrets', 'select')::text, 'false');
 
 -- ---------- تنظيف ثم النتيجة ----------
+-- نحذف الغرف أولًا (تحذف ألعابها ونتائجها بالتتابع)، ثم المستخدمين؛ لتفادي تعارض ترتيب الحذف داخل نفس المعاملة
+delete from public.rooms where owner_id in (select id from auth.users where email like '%@test.mafia.invalid');
 delete from auth.users where email like '%@test.mafia.invalid';
 
 select * from (

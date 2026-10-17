@@ -27,11 +27,11 @@ checks as (
   select 7, 'الزائر (anon) بلا صلاحية select على أي جدول', '0',
     (select count(*)::text from tbl where has_table_privilege('anon','public.'||name,'select'))
   union all
-  select 8, 'دوال RPC الـ18 موجودة', '18',
+  select 8, 'دوال RPC الـ20 موجودة', '20',
     (select count(*)::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
       where n.nspname='public' and p.proname in ('create_room','join_room','leave_room','kick_member',
       'set_member_role','update_room_settings','invite_player','respond_invite','submit_report','start_game',
-      'abort_game','get_my_role','submit_night_action','cast_vote','advance_phase','ping','hunter_shoot','set_boy_target'))
+      'abort_game','get_my_role','submit_night_action','cast_vote','advance_phase','ping','hunter_shoot','set_boy_target','set_display_name','end_speech'))
   union all
   select 9, 'الزائر لا ينفّذ cast_vote', 'false',
     has_function_privilege('anon','public.cast_vote(uuid,uuid)','execute')::text
@@ -55,6 +55,12 @@ checks as (
   union all
   select 16, 'الصياد والولد يملكان صلاحية التنفيذ', 'true',
     (has_function_privilege('authenticated','public.hunter_shoot(uuid,uuid)','execute') and has_function_privilege('authenticated','public.set_boy_target(uuid,uuid)','execute'))::text
+  union all
+  select 17, 'دور الإسكات وقدرته موجودان', '2',
+    ((select count(*) from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='game_role' and e.enumlabel='silencer') + (select count(*) from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='night_action_type' and e.enumlabel='silence'))::text
+  union all
+  select 18, 'أعمدة الدورة الجديدة في games', '4',
+    (select count(*)::text from information_schema.columns where table_schema='public' and table_name='games' and column_name in ('speech_order','speech_idx','silenced_id','vote_cycle'))
   union all
   select 14, 'اتصال الخادم (ping)', 'true', (public.ping() ->> 'ok')
 )

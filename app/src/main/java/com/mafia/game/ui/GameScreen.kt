@@ -92,9 +92,15 @@ private fun deathsText(arr: JSONArray?, names: Map<String, String>): List<String
 
 private fun eventLines(e: Ev, names: Map<String, String>): List<String> = when (e.type) {
     "game_started" -> listOf("بدأت اللعبة بـ ${e.payload.optInt("players")} لاعبين")
-    "night_result" -> deathsText(e.payload.optJSONArray("deaths"), names)
-        .ifEmpty { listOf("مرّت الليلة بسلام ولم يمت أحد") }
-    "day_started" -> listOf("طلع النهار، ناقشوا")
+    "night_result" -> {
+        val lines = deathsText(e.payload.optJSONArray("deaths"), names).toMutableList()
+        if (e.payload.optBoolean("assassination_failed")) lines.add(0, "عملية اغتيال فاشلة")
+        if (lines.isEmpty()) lines.add("مرّت الليلة بسلام ولم يمت أحد")
+        lines
+    }
+    "day_started" -> listOf("بدأ التبرير: لكل لاعب دور للكلام ثم التصويت")
+    "silenced" -> listOf("أُسكت " + (names[e.payload.optString("user_id")] ?: "لاعب") + " اليوم")
+    "justification_again" -> listOf("خرج مافيا! جولة تبرير جديدة ثم تصويت (بلا ليل)")
     "voting_started" -> listOf("بدأ التصويت")
     "player_eliminated" -> deathsText(e.payload.optJSONArray("deaths"), names)
     "no_elimination" -> listOf(if (e.payload.optBoolean("tie")) "تعادلت الأصوات ولم يُقصَ أحد" else "لم يصوّت أحد")
@@ -184,7 +190,7 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
         val left = if (endsMs != null) ((endsMs - nowMs) / 1000).coerceAtLeast(0L) else 0L
 
         // ---------- رأس الصفحة ----------
-        val phaseAr = when (phase) { "night" -> "الليل"; "day" -> "النهار"; "voting" -> "التصويت"; else -> "انتهت" }
+        val phaseAr = when (phase) { "night" -> "الليل"; "day" -> "التبرير"; "voting" -> "التصويت"; else -> "انتهت" }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("$phaseAr — الجولة $round", style = MaterialTheme.typography.titleLarge)
@@ -203,6 +209,9 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Image(painterResource(Roles.cardRes(my.role)), contentDescription = Roles.nameAr(my.role),
                             modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+                        if (my.role == "silencer") {
+                            Text("قدرتك: تُسكت لاعبًا كل ليلة، فلا يُمنح دور كلام في اليوم التالي (ويبقى يصوّت).")
+                        }
                         if (Roles.isMafia(my.role) && my.teammates.isNotEmpty()) {
                             Text("زملاؤك في المافيا: " + my.teammates.joinToString("، ") { names[it] ?: "لاعب" })
                         }
@@ -253,20 +262,12 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                     "mafia", "red_mafia" -> {
                         val cands = alive.filter { it.id != me && it.id !in my.teammates }
                         PickPanel(
-                            if (my.role == "red_mafia") "اختر ضحية الليلة (قرارك نهائي)" else "اقترح ضحية للفريق (قرار الأحمر نهائي)",
+                            if (my.role == "red_mafia") "اختر ضحية الليلة (قرارك نهائي: أنت أكبر ورقة)" else "اقترح ضحية للفريق (قرار الأحمر نهائي)",
                             cands, busy, onPick = { night("kill", it.id) }, skipLabel = "تخطّي", onSkip = { night("skip", null) })
-                        val sug = s.events.filter { it.type == "mafia_suggestion" && it.round == roundNow }
-                            .groupBy { it.payload.optString("actor_id") }.mapValues { it.value.last() }
-                        if (sug.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text("اقتراحات الفريق", style = MaterialTheme.typography.titleMedium)
-                                sug.forEach { (a, e) ->
-                                    val t = e.payload.strOrNull("target_id")
-                                    Text("${names[a] ?: "لاعب"} ← " + (if (t == null) "تخطّي" else (names[t] ?: "")))
-                                }
-                            }
-                        }
                     }
+                    "silencer" -> PickPanel("من تُسكته غدًا؟ (لا يُمنح دور كلام)",
+                        alive.filter { it.id != me && it.id !in my.teammates },
+                        busy, onPick = { night("silence", it.id) }, skipLabel = "تخطّي", onSkip = { night("skip", null) })
                     "girl" -> PickPanel("من تحميه من الاغتيال الليلة؟", alive.filter { it.id != my.lastProtected },
                         busy, onPick = { night("protect", it.id) }, skipLabel = "تخطّي", onSkip = { night("skip", null) })
                     "sheikh" -> PickPanel("من تفجّر الليلة؟ (يموت فورًا ولا تمنعه الحماية)", alive.filter { it.id != me },
@@ -274,12 +275,53 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                         skipLabel = "لا أفجّر أحدًا", onSkip = { night("skip", null) })
                     else -> Card(Modifier.fillMaxWidth()) { Text("الليل... لا قدرة لديك الآن. انتظر الصباح.", Modifier.padding(12.dp)) }
                 }
+                if (Roles.isMafia(my.role)) {
+                    val sug = s.events.filter { it.type == "mafia_suggestion" && it.round == roundNow }
+                        .groupBy { it.payload.optString("actor_id") }.mapValues { it.value.last() }
+                    if (sug.isNotEmpty()) Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("اقتراحات فريق المافيا", style = MaterialTheme.typography.titleMedium)
+                            sug.forEach { (a, e) ->
+                                val t = e.payload.strOrNull("target_id")
+                                val what = when (e.payload.optString("action")) { "silence" -> "إسكات "; "kill" -> "اغتيال "; else -> "" }
+                                Text("${names[a] ?: "لاعب"} ← " + (if (t == null) "تخطّي" else what + (names[t] ?: "")))
+                            }
+                        }
+                    }
+                }
                 if (sentNote.isNotBlank()) Text(sentNote)
             }
 
             // النهار: الصياد
             if (phase == "day") {
-                Card(Modifier.fillMaxWidth()) { Text("النهار: ناقشوا وتبادلوا الشكوك. سيبدأ التصويت عند انتهاء الوقت.", Modifier.padding(12.dp)) }
+                val order = g.optJSONArray("speech_order")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+                val idx = g.optInt("speech_idx")
+                val cur = order.getOrNull(idx)
+                val silencedId = g.strOrNull("silenced_id")
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("دور الكلام (لكل لاعب دورة كاملة قبل التصويت)", style = MaterialTheme.typography.titleMedium)
+                        order.forEachIndexed { i, id ->
+                            val mark = when { i < idx -> "✓"; i == idx -> "◀ يتكلم الآن"; else -> "…" }
+                            Text("$mark ${names[id] ?: "لاعب"}")
+                        }
+                        if (silencedId != null && alive.any { it.id == silencedId }) {
+                            Text("🔇 مُسكَت اليوم: ${names[silencedId] ?: ""} (بلا دور كلام، ويصوّت)")
+                        }
+                    }
+                }
+                if (cur == me) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("دورك الآن! تكلّم وبرّر. المتبقي $left ثانية", style = MaterialTheme.typography.titleMedium)
+                            Button(enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                                onClick = { act { client.rpc("end_speech", JSONObject().put("p_game_id", gameId)) } }
+                            ) { Text("أنهيت كلامي") }
+                        }
+                    }
+                } else if (me == silencedId) {
+                    Card(Modifier.fillMaxWidth()) { Text("🔇 أنت مُسكَت اليوم: لا دور كلام لك، لكنك تصوّت.", Modifier.padding(12.dp)) }
+                }
                 if (my.role == "hunter" && my.bullets > 0) {
                     PickPanel("الصياد: أطلق طلقتك الوحيدة (يموت الهدف دائمًا)", alive.filter { it.id != me }, busy,
                         onPick = { p -> confirm = Confirm("إطلاق النار على ${p.name}؟ لا رجعة فيه.") {
@@ -289,7 +331,8 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
 
             // التصويت
             if (phase == "voting") {
-                val voted = s.votes.any { it.round == roundNow && it.voter == me }
+                val voteCycle = g.optInt("vote_cycle", 1)
+                val voted = s.votes.any { it.round == voteCycle && it.voter == me }
                 if (voted) {
                     Card(Modifier.fillMaxWidth()) { Text("✓ تم تسجيل صوتك. بانتظار البقية.", Modifier.padding(12.dp)) }
                 } else {
@@ -318,6 +361,7 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
             val tag = buildString {
                 if (p.id == me) append(" — أنت")
                 if (my != null && p.id in my.teammates) append(" — مافيا")
+                if (inProgress && p.alive && p.id == g.strOrNull("silenced_id")) append(" — 🔇 مُسكَت")
                 if (!p.alive) append(" — ميت" + (p.role?.let { " (${Roles.nameAr(it)})" } ?: ""))
             }
             Card(Modifier.fillMaxWidth()) { Text("${p.seat}. ${p.name}$tag", Modifier.padding(10.dp)) }

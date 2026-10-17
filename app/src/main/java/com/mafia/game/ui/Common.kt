@@ -11,6 +11,7 @@ object Roles {
     fun nameAr(role: String?): String = when (role) {
         "mafia" -> "مافيا"
         "red_mafia" -> "مافيا أحمر"
+        "silencer" -> "مافيا الإسكات"
         "sheikh" -> "الشيخ"
         "boy" -> "الولد"
         "hunter" -> "الصياد"
@@ -20,7 +21,7 @@ object Roles {
     }
 
     fun cardRes(role: String): Int = when (role) {
-        "mafia" -> R.drawable.card_mafia
+        "mafia", "silencer" -> R.drawable.card_mafia
         "red_mafia" -> R.drawable.card_red_mafia
         "sheikh" -> R.drawable.card_sheikh
         "boy" -> R.drawable.card_boy
@@ -29,5 +30,5 @@ object Roles {
         else -> R.drawable.card_citizen
     }
 
-    fun isMafia(role: String?): Boolean = role == "mafia" || role == "red_mafia"
+    fun isMafia(role: String?): Boolean = role == "mafia" || role == "red_mafia" || role == "silencer"
 }

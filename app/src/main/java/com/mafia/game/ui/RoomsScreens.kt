@@ -182,6 +182,8 @@ fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit, onGa
     var msg by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var fast by remember { mutableStateOf(false) }
+    var silencer by remember { mutableStateOf(false) }
+    var speech by remember { mutableStateOf("120") }
     val me = client.currentUserId()
 
     // تحديث دوري كل 3 ثوانٍ؛ وإذا بدأت لعبة في الغرفة ينتقل الجميع إليها تلقائيًا
@@ -223,7 +225,15 @@ fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit, onGa
         val isOwner = r != null && r.optString("owner_id") == me
         if (isOwner) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Switch(fast, { fast = it }); Text("جولات سريعة للتجربة (20 ثانية)")
+                Switch(fast, { fast = it }); Text("جولات سريعة للتجربة (20 ثانية لكل مرحلة)")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Switch(silencer, { silencer = it }); Text("تفعيل مافيا الإسكات (من 6 لاعبين)")
+            }
+            if (!fast) {
+                OutlinedTextField(speech, { speech = it.filter(Char::isDigit).take(3) },
+                    label = { Text("مدة دور الكلام لكل لاعب بالثواني (20-300)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             }
             Button(enabled = !busy && members.size >= 4, modifier = Modifier.fillMaxWidth(), onClick = {
                 scope.launch {
@@ -231,8 +241,9 @@ fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit, onGa
                     try {
                         val body = client.rpc("start_game", JSONObject().put("p_room_id", roomId)
                             .put("p_night_seconds", if (fast) 20 else 60)
-                            .put("p_day_seconds", if (fast) 20 else 120)
-                            .put("p_vote_seconds", if (fast) 20 else 60))
+                            .put("p_speech_seconds", if (fast) 20 else (speech.toIntOrNull() ?: 120).coerceIn(20, 300))
+                            .put("p_vote_seconds", if (fast) 20 else 60)
+                            .put("p_silencer_enabled", silencer))
                         onGame(body.trim().trim('"'))
                     } catch (e: Exception) { msg = friendlyError(e) }
                     busy = false

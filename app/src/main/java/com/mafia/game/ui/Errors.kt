@@ -34,6 +34,7 @@ fun friendlyError(e: Exception): String {
         "cannot_vote_self" to "لا يمكنك التصويت لنفسك",
         "no_bullets" to "استخدمت طلقتك",
         "not_hunter" to "هذه القدرة للصياد فقط",
+        "not_your_turn" to "ليس دورك في الكلام الآن",
         "not_boy" to "هذه القدرة للولد فقط",
         "Anonymous sign-ins are disabled" to "فعّل Anonymous sign-ins في Supabase"
     )

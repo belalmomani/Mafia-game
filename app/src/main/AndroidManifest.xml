@@ -2,12 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.MafiaGame">
+        <!-- Start.io: معرّف التطبيق -->
+        <meta-data
+            android:name="com.startapp.sdk.APPLICATION_ID"
+            android:value="209829027" />
+        <!-- إعلانات العودة (Return Ads) مطفأة كي لا تزعج اللاعبين -->
+        <meta-data
+            android:name="com.startapp.sdk.RETURN_ADS_ENABLED"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
