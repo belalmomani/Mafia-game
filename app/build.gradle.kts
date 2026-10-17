@@ -20,7 +20,7 @@ fun cfg(name: String): String =
 
 android {
     namespace = "com.mafia.game"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mafia.game"
