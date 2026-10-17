@@ -20,6 +20,43 @@ class SupabaseClient(context: Context) {
 
     val isConfigured: Boolean get() = url.startsWith("https://") && key.isNotBlank()
 
+    fun baseUrl(): String = url
+    fun apiKey(): String = key
+    fun accessToken(): String? = prefs.getString("access_token", null)
+    /** بريد الحساب إن كان الحساب مرتبطًا ببريد (وإلا حساب مجهول). */
+    fun userEmail(): String? = prefs.getString("email", null)?.takeIf { it.isNotBlank() }
+
+    /** تسجيل دخول ببريد وكلمة مرور (لحساب موجود، مثلًا على جهاز جديد). */
+    suspend fun signInEmail(email: String, password: String): String {
+        val (code, body) = http("POST", "/auth/v1/token?grant_type=password",
+            JSONObject().put("email", email).put("password", password).toString())
+        if (code !in 200..299) throw ApiException(code, errorText(body))
+        return saveSession(JSONObject(body))
+    }
+
+    /** إنشاء حساب جديد ببريد وكلمة مرور. */
+    suspend fun signUpEmail(email: String, password: String): String {
+        val (code, body) = http("POST", "/auth/v1/signup",
+            JSONObject().put("email", email).put("password", password).toString())
+        if (code !in 200..299) throw ApiException(code, errorText(body))
+        val j = JSONObject(body)
+        return if (j.has("access_token")) { saveSession(j); "تم إنشاء الحساب وتسجيل الدخول" }
+        else "أُرسل رابط تأكيد إلى بريدك. افتحه ثم سجّل الدخول."
+    }
+
+    /** ربط الحساب المجهول الحالي ببريد وكلمة مرور (تبقى غرفك وبياناتك). */
+    suspend fun linkEmail(email: String, password: String): String {
+        ensureSession()
+        val (code, body) = http("PUT", "/auth/v1/user",
+            JSONObject().put("email", email).put("password", password).toString(), auth = true)
+        if (code !in 200..299) throw ApiException(code, errorText(body))
+        val j = JSONObject(body)
+        val confirmed = j.optString("email", "")
+        if (confirmed.isNotBlank()) prefs.edit().putString("email", confirmed).apply()
+        return if (j.optString("new_email", "").isNotBlank()) "أُرسل رابط تأكيد إلى بريدك لإكمال الربط."
+        else "تم ربط حسابك. يمكنك الدخول به من أي جهاز."
+    }
+
     class ApiException(val status: Int, message: String) : Exception(message)
 
     /** اختبار الاتصال: دالة ping لا تلمس أي بيانات. */
@@ -79,6 +116,7 @@ class SupabaseClient(context: Context) {
             .putString("access_token", json.getString("access_token"))
             .putString("refresh_token", json.getString("refresh_token"))
             .putString("user_id", uid)
+            .putString("email", json.getJSONObject("user").optString("email", ""))
             .putLong("expires_at", System.currentTimeMillis() / 1000 + json.optLong("expires_in", 3600))
             .apply()
         return uid

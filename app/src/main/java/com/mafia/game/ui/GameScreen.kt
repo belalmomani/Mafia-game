@@ -1,5 +1,6 @@
 package com.mafia.game.ui
 
+import android.view.WindowManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,9 +14,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,9 +28,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.mafia.game.data.RealtimeWatcher
 import com.mafia.game.data.SupabaseClient
+import com.mafia.game.util.AppState
+import com.mafia.game.util.Notifier
+import com.mafia.game.util.findActivity
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -44,9 +55,10 @@ private data class MyRole(
 )
 private data class Ev(val id: Long, val round: Int, val type: String, val payload: JSONObject)
 private data class VoteRow(val round: Int, val voter: String, val target: String?)
+private data class Msg(val id: Long, val userId: String, val channel: String, val body: String)
 private data class Snap(
     val game: JSONObject, val players: List<Player>, val my: MyRole?,
-    val events: List<Ev>, val votes: List<VoteRow>
+    val events: List<Ev>, val votes: List<VoteRow>, val messages: List<Msg>, val voiceLink: String?
 )
 private class Confirm(val text: String, val run: suspend () -> Unit)
 
@@ -71,7 +83,14 @@ private suspend fun loadSnap(client: SupabaseClient, gameId: String): Snap {
     val votes = JSONArray(client.get(
         "/rest/v1/votes?select=round_no,voter_id,target_id&game_id=eq.$gameId&order=round_no.asc"
     )).objects().map { VoteRow(it.getInt("round_no"), it.getString("voter_id"), it.strOrNull("target_id")) }
-    return Snap(game, players, my, events, votes)
+    val messages = JSONArray(client.get(
+        "/rest/v1/game_messages?select=id,user_id,channel,body&game_id=eq.$gameId&order=id.asc&limit=100"
+    )).objects().map { Msg(it.getLong("id"), it.getString("user_id"), it.getString("channel"), it.getString("body")) }
+    val roomId = game.optString("room_id")
+    val voice = runCatching {
+        JSONArray(client.get("/rest/v1/rooms?select=voice_link&id=eq.$roomId")).optJSONObject(0)?.strOrNull("voice_link")
+    }.getOrNull()
+    return Snap(game, players, my, events, votes, messages, voice)
 }
 
 private fun deathsText(arr: JSONArray?, names: Map<String, String>): List<String> {
@@ -84,6 +103,7 @@ private fun deathsText(arr: JSONArray?, names: Map<String, String>): List<String
             "pulled" -> " — سحبه الولد معه"
             "hunt" -> " — برصاصة الصياد"
             "vote" -> " — بالتصويت"
+            "left" -> " — انسحب"
             else -> ""
         }
         "مات $n$role$cause"
@@ -108,6 +128,8 @@ private fun eventLines(e: Ev, names: Map<String, String>): List<String> = when (
         deathsText(e.payload.optJSONArray("deaths"), names)
     "night_started" -> listOf("بدأت الليلة ${e.round}")
     "game_ended" -> listOf(if (e.payload.optString("winner") == "citizens") "انتهت اللعبة: فاز المواطنون" else "انتهت اللعبة: فازت المافيا")
+    "boy_pulled" -> deathsText(e.payload.optJSONArray("deaths"), names)
+    "player_left" -> deathsText(e.payload.optJSONArray("deaths"), names)
     "game_aborted" -> listOf("أُلغيت اللعبة")
     else -> emptyList()
 }
@@ -132,6 +154,24 @@ private fun PickPanel(
 }
 
 @Composable
+private fun ChatPanel(title: String, msgs: List<Msg>, names: Map<String, String>, canSend: Boolean, onSend: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            msgs.forEach { Text("${names[it.userId] ?: "لاعب"}: ${it.body}") }
+            if (canSend) {
+                OutlinedTextField(text, { text = it.take(300) }, label = { Text("اكتب رسالتك") }, modifier = Modifier.fillMaxWidth())
+                Button(enabled = text.isNotBlank(), modifier = Modifier.fillMaxWidth(), onClick = {
+                    val t = text.trim()
+                    if (t.isNotEmpty()) { onSend(t); text = "" }
+                }) { Text("إرسال") }
+            }
+        }
+    }
+}
+
+@Composable
 fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
     val scope = rememberCoroutineScope()
     var snap by remember { mutableStateOf<Snap?>(null) }
@@ -142,7 +182,24 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
     var sentRound by remember { mutableStateOf(-1) }
     var sentLabel by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf<Confirm?>(null) }
+    var reportTarget by remember { mutableStateOf<Player?>(null) }
     val me = client.currentUserId()
+    val ctx = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val trigger = remember { Channel<Unit>(Channel.CONFLATED) }
+
+    // منع لقطة الشاشة أثناء إظهار ورقة الدور فقط
+    DisposableEffect(showRole) {
+        val act = ctx.findActivity()
+        if (showRole) act?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { act?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+    // Realtime: تحديث فوري عند أي تغيير (الاستطلاع كل 3 ثوانٍ احتياط)
+    DisposableEffect(gameId) {
+        val w = RealtimeWatcher(client, gameId) { trigger.trySend(Unit) }
+        w.start()
+        onDispose { w.stop() }
+    }
 
     LaunchedEffect(gameId) {
         while (true) {
@@ -153,7 +210,7 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                 }
                 snap = loadSnap(client, gameId)
             } catch (e: Exception) { msg = friendlyError(e) }
-            delay(2500)
+            withTimeoutOrNull(3000) { trigger.receive() }
         }
     }
     LaunchedEffect(Unit) { while (true) { nowMs = System.currentTimeMillis(); delay(1000) } }
@@ -167,6 +224,34 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
     }
 
     val s = snap
+    val stateKey = s?.let {
+        "${it.game.optString("phase")}|${it.game.optInt("round_no")}|${it.game.optInt("speech_idx")}|${it.game.optInt("vote_cycle")}|${it.game.optString("status")}"
+    }
+    var lastKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(stateKey) {
+        val sn = snap
+        if (stateKey != null && sn != null) {
+            if (lastKey != null && lastKey != stateKey) {
+                val ph = sn.game.optString("phase")
+                val order = sn.game.optJSONArray("speech_order")
+                val ix = sn.game.optInt("speech_idx")
+                val curSpk = if (order != null && ix < order.length()) order.getString(ix) else null
+                val (title, text) = when {
+                    sn.game.optString("status") != "in_progress" -> "انتهت اللعبة" to "افتح التطبيق لمعرفة النتيجة"
+                    ph == "day" && curSpk == me -> "دورك في الكلام" to "تكلّم وبرّر الآن"
+                    ph == "day" -> "التبرير" to "بدأ دور كلام جديد"
+                    ph == "night" -> "بدأ الليل" to "اختر قدرتك إن كان لديك"
+                    ph == "voting" -> "بدأ التصويت" to "صوّت الآن"
+                    else -> "" to ""
+                }
+                if (title.isNotEmpty()) {
+                    Notifier.vibrate(ctx, if (curSpk == me) 500 else 200)
+                    if (!AppState.foreground) Notifier.notify(ctx, title, text)
+                }
+            }
+            lastKey = stateKey
+        }
+    }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (s == null) {
             Text("جارٍ تحميل اللعبة...")
@@ -199,6 +284,14 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
             if (my != null) OutlinedButton(onClick = { showRole = true }) { Text("دوري") }
         }
         if (msg.isNotBlank()) Text(msg, color = MaterialTheme.colorScheme.error)
+        s.voiceLink?.let { link ->
+            OutlinedButton(onClick = { runCatching { uriHandler.openUri(link) } }, modifier = Modifier.fillMaxWidth()) {
+                Text("🎙️ فتح الغرفة الصوتية")
+            }
+        }
+        if (inProgress && g.strOrNull("pending_pull") != null) {
+            Text("الولد يختار الآن من يسحبه معه...")
+        }
 
         if (showRole && my != null) {
             AlertDialog(
@@ -242,6 +335,11 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
             }
             Button(onClick = onExit, modifier = Modifier.fillMaxWidth()) { Text("العودة للقائمة") }
         } else if (meP != null && !meP.alive) {
+            if (g.strOrNull("pending_pull") == me) {
+                PickPanel("الولد: اسحب لاعبًا معك الآن (مهلة قصيرة، وإلا يُنفَّذ اختيارك المسبق)",
+                    alive.filter { it.id != me }, busy,
+                    onPick = { p -> act { client.rpc("boy_pull", JSONObject().put("p_game_id", gameId).put("p_target_id", p.id)) } })
+            }
             Card(Modifier.fillMaxWidth()) { Text("أنت خارج اللعبة. تتابع كمشاهد فقط.", Modifier.padding(12.dp)) }
         } else if (my != null) {
             val roundNow = round
@@ -355,6 +453,25 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
             }
         }
 
+        // ---------- الدردشة ----------
+        val speechOrder = g.optJSONArray("speech_order")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+        val speaker = speechOrder.getOrNull(g.optInt("speech_idx"))
+        val iAmAlive = meP?.alive == true
+        val canPublic = inProgress && phase == "day" && speaker == me && iAmAlive
+        val canMafia = inProgress && phase == "night" && my != null && Roles.isMafia(my.role) && iAmAlive
+        val pubMsgs = s.messages.filter { it.channel == "public" }.takeLast(15)
+        val mafMsgs = s.messages.filter { it.channel == "mafia" }.takeLast(15)
+        if (pubMsgs.isNotEmpty() || canPublic) {
+            ChatPanel("💬 كلام اللاعبين", pubMsgs, names, canPublic) { t ->
+                act { client.rpc("send_message", JSONObject().put("p_game_id", gameId).put("p_body", t).put("p_channel", "public")) }
+            }
+        }
+        if (my != null && Roles.isMafia(my.role) && (mafMsgs.isNotEmpty() || canMafia)) {
+            ChatPanel("🕶️ دردشة المافيا (سرية)", mafMsgs, names, canMafia) { t ->
+                act { client.rpc("send_message", JSONObject().put("p_game_id", gameId).put("p_body", t).put("p_channel", "mafia")) }
+            }
+        }
+
         // ---------- اللاعبون ----------
         Text("اللاعبون", style = MaterialTheme.typography.titleMedium)
         s.players.forEach { p ->
@@ -364,7 +481,13 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                 if (inProgress && p.alive && p.id == g.strOrNull("silenced_id")) append(" — 🔇 مُسكَت")
                 if (!p.alive) append(" — ميت" + (p.role?.let { " (${Roles.nameAr(it)})" } ?: ""))
             }
-            Card(Modifier.fillMaxWidth()) { Text("${p.seat}. ${p.name}$tag", Modifier.padding(10.dp)) }
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("${p.seat}. ${p.name}$tag", Modifier.padding(vertical = 10.dp))
+                    if (p.id != me) TextButton(onClick = { reportTarget = p }) { Text("بلاغ") }
+                }
+            }
         }
 
         // ---------- سجل الأحداث ----------
@@ -392,6 +515,36 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
             OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
                 confirm = Confirm("إلغاء اللعبة الجارية؟") { client.rpc("abort_game", JSONObject().put("p_game_id", gameId)) }
             }) { Text("إلغاء اللعبة (المالك)") }
+        }
+        reportTarget?.let { rt ->
+            val reasons = listOf("cheating" to "غش", "harassment" to "إساءة", "spam" to "إزعاج",
+                "offensive_name" to "اسم مسيء", "leaving_game" to "ترك اللعبة", "other" to "أخرى")
+            AlertDialog(
+                onDismissRequest = { reportTarget = null },
+                title = { Text("بلاغ عن ${rt.name}") },
+                text = {
+                    Column {
+                        reasons.forEach { (code, label) ->
+                            TextButton(onClick = {
+                                reportTarget = null
+                                act {
+                                    client.rpc("submit_report", JSONObject().put("p_reported_id", rt.id)
+                                        .put("p_reason", code).put("p_game_id", gameId))
+                                    msg = "تم إرسال البلاغ"
+                                }
+                            }) { Text(label) }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { reportTarget = null }) { Text("إلغاء") } }
+            )
+        }
+        if (inProgress && iAmAlive) {
+            OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
+                confirm = Confirm("الانسحاب من اللعبة؟ ستخرج منها نهائيًا.") {
+                    client.rpc("leave_game", JSONObject().put("p_game_id", gameId))
+                }
+            }) { Text("انسحاب من اللعبة") }
         }
         if (inProgress) OutlinedButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) { Text("خروج مؤقت (اللعبة مستمرة)") }
     }

@@ -135,6 +135,12 @@ select pg_temp.expect('الصياد يطلق على الولد',
   pg_temp.run_as(pg_temp.ctx('hunter'), format('select public.hunter_shoot(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('boy'))), 'OK:true');
 select pg_temp.expect('الولد مات برصاصة',
   pg_temp.run_as(pg_temp.v(1), format('select (is_alive::text || eliminated_by::text) from public.game_players where game_id=%L and user_id=%L', pg_temp.ctx('game'), pg_temp.ctx('boy'))), 'OK:falsehunt');
+select pg_temp.expect('c1 ما زال حيًا حتى يختار الولد (مهلة 20 ثانية)',
+  pg_temp.run_as(pg_temp.v(1), format('select is_alive::text from public.game_players where game_id=%L and user_id=%L', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
+select pg_temp.expect('غير الولد لا يسحب',
+  pg_temp.run_as(pg_temp.ctx('c2'), format('select public.boy_pull(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'ERR:%no_pending_pull');
+select pg_temp.expect('الولد الميت يسحب c1 بنفسه',
+  pg_temp.run_as(pg_temp.ctx('boy'), format('select public.boy_pull(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:true');
 select pg_temp.expect('الولد سحب c1 معه',
   pg_temp.run_as(pg_temp.v(1), format('select (is_alive::text || eliminated_by::text) from public.game_players where game_id=%L and user_id=%L', pg_temp.ctx('game'), pg_temp.ctx('c1'))), 'OK:falsepulled');
 select pg_temp.expect('لا طلقة ثانية للصياد',

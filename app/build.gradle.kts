@@ -25,12 +25,31 @@ android {
     defaultConfig {
         applicationId = "com.mafia.game"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
         // المفتاح العام (publishable/anon) فقط. ممنوع وضع service_role أو secret key هنا.
         buildConfigField("String", "SUPABASE_URL", "\"${cfg("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${cfg("SUPABASE_PUBLISHABLE_KEY")}\"")
+    }
+
+    // توقيع نسخة release: يُقرأ من متغيرات البيئة (GitHub Secrets) أو local.properties
+    val ksPath = cfg("KEYSTORE_PATH")
+    signingConfigs {
+        if (ksPath.isNotBlank()) {
+            create("release") {
+                storeFile = file(ksPath)
+                storePassword = cfg("KEYSTORE_PASSWORD")
+                keyAlias = cfg("KEY_ALIAS")
+                keyPassword = cfg("KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (ksPath.isNotBlank()) signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     buildFeatures {
@@ -55,4 +74,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // Start.io (StartApp) — بانر إعلاني صغير أسفل الشاشة
     implementation("com.startapp:inapp-sdk:5.+")
+    // Realtime (WebSocket)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
