@@ -46,18 +46,21 @@ private fun parseMembers(json: String): List<MemberItem> =
     JSONArray(json).objects().map {
         val p = it.optJSONObject("profiles")
         val name = (p?.strOrNull("display_name") ?: "").ifBlank { p?.strOrNull("username") ?: "" }
-        MemberItem(it.getString("user_id"), it.getString("role"), name.ifBlank { "لاعب" }, p?.optBoolean("is_bot") == true)
+        val av = p?.strOrNull("avatar")
+        val shown = name.ifBlank { "لاعب" }
+        MemberItem(it.getString("user_id"), it.getString("role"), if (av != null) "$av $shown" else shown, p?.optBoolean("is_bot") == true)
     }
 
 @Composable
 fun HomeScreen(
     client: SupabaseClient, onOpenRoom: (String) -> Unit, onDebug: () -> Unit,
-    onAccount: () -> Unit, onRules: () -> Unit
+    onAccount: () -> Unit, onRules: () -> Unit, onStats: () -> Unit, onAdmin: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf(listOf<RoomItem>()) }
     var myRooms by remember { mutableStateOf(listOf<RoomItem>()) }
     var invites by remember { mutableStateOf(listOf<InviteItem>()) }
+    var isAdmin by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var myName by remember { mutableStateOf("") }
@@ -81,6 +84,7 @@ fun HomeScreen(
         }
         rooms = parseRooms(client.get(
             "/rest/v1/rooms?select=id,name,member_count,max_players&visibility=eq.public&status=eq.open&order=created_at.desc&limit=30"))
+        isAdmin = runCatching { client.rpc("is_admin").trim() == "true" }.getOrDefault(false)
         invites = JSONArray(client.get(
             "/rest/v1/room_invites?select=id,room_id,room_name&invitee_id=eq.$uid&status=eq.pending&expires_at=gt.${java.time.Instant.now()}"
         )).objects().map { InviteItem(it.getString("id"), it.getString("room_id"), it.optString("room_name")) }
@@ -204,6 +208,8 @@ fun HomeScreen(
                 }
             }
         }
+        OutlinedButton(onClick = onStats, modifier = Modifier.fillMaxWidth()) { Text("إحصاءاتي والترتيب والصورة") }
+        if (isAdmin) OutlinedButton(onClick = onAdmin, modifier = Modifier.fillMaxWidth()) { Text("🛡️ لوحة الإدارة (البلاغات)") }
         OutlinedButton(onClick = onAccount, modifier = Modifier.fillMaxWidth()) { Text("حسابي (حماية الحساب بالبريد)") }
         OutlinedButton(onClick = onRules, modifier = Modifier.fillMaxWidth()) { Text("القواعد والأدوار") }
         OutlinedButton(onClick = onDebug, modifier = Modifier.fillMaxWidth()) { Text("اختبار الاتصال") }
@@ -243,7 +249,7 @@ fun LobbyScreen(client: SupabaseClient, roomId: String, onBack: () -> Unit, onGa
                 if (g != null) { onGame(g.getString("id")); return@LaunchedEffect }
                 room = JSONArray(client.get("/rest/v1/rooms?select=*&id=eq.$roomId")).optJSONObject(0)
                 members = parseMembers(client.get(
-                    "/rest/v1/room_members?select=user_id,role,profiles(username,display_name,is_bot)&room_id=eq.$roomId&status=eq.active&order=joined_at.asc"))
+                    "/rest/v1/room_members?select=user_id,role,profiles(username,display_name,is_bot,avatar)&room_id=eq.$roomId&status=eq.active&order=joined_at.asc"))
                 msg = ""
             } catch (e: Exception) { msg = friendlyError(e) }
             delay(3000)

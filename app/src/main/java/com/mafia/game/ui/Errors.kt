@@ -35,6 +35,8 @@ fun friendlyError(e: Exception): String {
         "no_bullets" to "استخدمت طلقتك",
         "not_hunter" to "هذه القدرة للصياد فقط",
         "not_your_turn" to "ليس دورك في الكلام الآن",
+        "not_admin" to "هذه الشاشة للمشرفين فقط",
+        "invalid_avatar" to "رمز الصورة غير صالح",
         "not_boy" to "هذه القدرة للولد فقط",
         "Anonymous sign-ins are disabled" to "فعّل Anonymous sign-ins في Supabase"
     )

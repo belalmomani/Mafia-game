@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mafia.game.data.SupabaseClient
 import com.mafia.game.ui.AccountScreen
+import com.mafia.game.ui.AdminScreen
+import com.mafia.game.ui.StatsScreen
 import com.mafia.game.ui.AdBanner
 import com.mafia.game.ui.ConnectionScreen
 import com.mafia.game.ui.GameScreen
@@ -38,6 +40,8 @@ private sealed interface Screen {
     data object Debug : Screen
     data object Account : Screen
     data object Rules : Screen
+    data object Stats : Screen
+    data object Admin : Screen
     data class Lobby(val roomId: String) : Screen
     data class Game(val gameId: String, val roomId: String) : Screen
 }
@@ -74,10 +78,13 @@ private fun App(client: SupabaseClient) {
             when (val s = screen) {
                 Screen.Home -> HomeScreen(client, onOpenRoom = { screen = Screen.Lobby(it) },
                     onDebug = { screen = Screen.Debug }, onAccount = { screen = Screen.Account },
-                    onRules = { screen = Screen.Rules })
+                    onRules = { screen = Screen.Rules }, onStats = { screen = Screen.Stats },
+                    onAdmin = { screen = Screen.Admin })
                 Screen.Debug -> ConnectionScreen(client, onBack = { screen = Screen.Home })
                 Screen.Account -> AccountScreen(client, onBack = { screen = Screen.Home })
                 Screen.Rules -> RulesScreen(onBack = { screen = Screen.Home })
+                Screen.Stats -> StatsScreen(client, onBack = { screen = Screen.Home })
+                Screen.Admin -> AdminScreen(client, onBack = { screen = Screen.Home })
                 is Screen.Lobby -> LobbyScreen(client, s.roomId, onBack = { screen = Screen.Home },
                     onGame = { screen = Screen.Game(it, s.roomId) })
                 is Screen.Game -> GameScreen(client, s.gameId, onExit = { screen = Screen.Home })

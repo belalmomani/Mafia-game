@@ -1,11 +1,13 @@
 package com.mafia.game.ui
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,15 +22,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.mafia.game.BuildConfig
 import com.mafia.game.data.SupabaseClient
+import com.mafia.game.util.findActivity
 import kotlinx.coroutines.launch
 
 @Composable
 fun AccountScreen(client: SupabaseClient, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf("") }
@@ -65,9 +77,34 @@ fun AccountScreen(client: SupabaseClient, onBack: () -> Unit) {
             onClick = { act { client.signInEmail(email, password); "تم تسجيل الدخول" } }) { Text("تسجيل الدخول بحساب موجود") }
         OutlinedButton(enabled = !busy && email.contains("@") && password.length >= 6, modifier = Modifier.fillMaxWidth(),
             onClick = { act { client.signUpEmail(email, password) } }) { Text("إنشاء حساب جديد") }
+        if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()) {
+            OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                onClick = { act { signInWithGoogle(ctx, client) } }) { Text("الدخول بحساب Google") }
+        }
         if (msg.isNotBlank()) Text(msg)
+        SelectionContainer { Text("معرّف حسابك (اضغط مطولًا للنسخ): ${client.currentUserId() ?: "-"}", style = MaterialTheme.typography.bodySmall) }
         Text("ملاحظة: إن طلب Supabase تأكيد البريد فسيصلك رابط. يمكن للمالك تعطيل «Confirm email» من لوحة Supabase لتجربة أسرع.",
             style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("رجوع") }
     }
+}
+
+private suspend fun signInWithGoogle(ctx: Context, client: SupabaseClient): String {
+    val activity = ctx.findActivity() ?: throw Exception("تعذر فتح نافذة Google")
+    val option = GetGoogleIdOption.Builder()
+        .setFilterByAuthorizedAccounts(false)
+        .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+        .build()
+    val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
+    val result = try {
+        CredentialManager.create(activity).getCredential(activity, request)
+    } catch (e: GetCredentialException) {
+        throw Exception("تعذر تسجيل Google: " + (e.message ?: e.type))
+    }
+    val cred = result.credential
+    if (cred is CustomCredential && cred.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+        client.signInGoogle(GoogleIdTokenCredential.createFrom(cred.data).idToken)
+        return "تم تسجيل الدخول بحساب Google"
+    }
+    throw Exception("نوع بيانات اعتماد غير مدعوم")
 }

@@ -65,11 +65,12 @@ private class Confirm(val text: String, val run: suspend () -> Unit)
 private suspend fun loadSnap(client: SupabaseClient, gameId: String): Snap {
     val game = JSONArray(client.get("/rest/v1/games?select=*&id=eq.$gameId")).getJSONObject(0)
     val players = JSONArray(client.get(
-        "/rest/v1/game_players?select=user_id,seat_no,is_alive,revealed_role,eliminated_by,profiles(username,display_name)&game_id=eq.$gameId&order=seat_no.asc"
+        "/rest/v1/game_players?select=user_id,seat_no,is_alive,revealed_role,eliminated_by,profiles(username,display_name,avatar)&game_id=eq.$gameId&order=seat_no.asc"
     )).objects().map { o ->
         val p = o.optJSONObject("profiles")
         val nm = (p?.strOrNull("display_name") ?: "").ifBlank { p?.strOrNull("username") ?: "" }.ifBlank { "لاعب" }
-        Player(o.getString("user_id"), nm, o.getInt("seat_no"), o.getBoolean("is_alive"),
+        val av = p?.strOrNull("avatar")
+        Player(o.getString("user_id"), if (av != null) "$av $nm" else nm, o.getInt("seat_no"), o.getBoolean("is_alive"),
             o.strOrNull("revealed_role"), o.strOrNull("eliminated_by"))
     }
     val my = JSONArray(client.rpc("get_my_role", JSONObject().put("p_game_id", gameId))).optJSONObject(0)?.let { o ->

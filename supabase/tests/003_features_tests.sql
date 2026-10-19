@@ -131,22 +131,39 @@ select pg_temp.expect('سبب إقصائه: انسحاب',
 select pg_temp.expect('لا يستطيع الانسحاب مرتين',
   pg_temp.run_as(pg_temp.v(1), format('select public.leave_game(%L)::text', pg_temp.ctx('game'))), 'ERR:%');
 
-create or replace function pg_temp.drive(p_game text, p_user text) returns int language plpgsql as $$
-declare i int := 0; v_status text;
+create or replace function pg_temp.drive(p_game text, p_user text) returns text language plpgsql as $$
+declare i int := 0; v_status text; v_res text; v_err text := ''; v_diag text := '';
 begin
   loop
     select status::text into v_status from public.games where id = p_game::uuid;
     exit when v_status <> 'in_progress' or i >= 200;
     update public.games set phase_ends_at = now() - interval '1 second' where id = p_game::uuid;
     update public.games set pending_pull_until = now() - interval '1 second' where id = p_game::uuid and pending_pull is not null;
-    perform pg_temp.run_as(p_user, format('select public.advance_phase(%L)', p_game));
+    v_res := pg_temp.run_as(p_user, format('select public.advance_phase(%L)', p_game));
+    if v_res like 'ERR:%' and v_err = '' then v_err := v_res; end if;
     i := i + 1;
   end loop;
-  return i;
+  select g.phase::text || ' round=' || g.round_no || ' cycle=' || g.vote_cycle || ' status=' || g.status::text
+         || ' alive=' || (select count(*) from public.game_players p where p.game_id = g.id and p.is_alive)
+         || ' pending_pull=' || coalesce(g.pending_pull::text, '-') || ' last=' || coalesce(v_res, '-')
+         || ' ; night_actions=' || (select count(*) from public.night_actions a where a.game_id = g.id)
+         || ' votes=' || (select count(*) from public.votes v where v.game_id = g.id)
+         || ' vote_results=' || (select count(*) from public.vote_results r where r.game_id = g.id)
+         || ' ties=' || (select count(*) from public.vote_results r where r.game_id = g.id and r.is_tie)
+         || ' elim=' || (select count(*) from public.vote_results r where r.game_id = g.id and r.eliminated_user_id is not null)
+         || ' alive_roles=' || coalesce((select string_agg(s.role::text, ',') from public.game_players p
+                                         join public.game_secrets s on s.game_id = p.game_id and s.user_id = p.user_id
+                                         where p.game_id = g.id and p.is_alive), '-')
+    into v_diag from public.games g where g.id = p_game::uuid;
+  return i::text || '|' || v_err || '|' || v_diag;
 end $$;
 
+select pg_temp.setctx('drive', pg_temp.drive(pg_temp.ctx('game'), pg_temp.v(1)));
 select pg_temp.expect('البوتات تُنهي اللعبة بدون تدخل بشري (أقل من 200 خطوة)',
-  (pg_temp.drive(pg_temp.ctx('game'), pg_temp.v(1)) < 200)::text, 'true');
+  (split_part(pg_temp.ctx('drive'), '|', 1)::int < 200)::text, 'true');
+select pg_temp.expect('تشخيص حالة اللعبة بعد التشغيل (للمطوّر)', split_part(pg_temp.ctx('drive'), '|', 3), '%');
+select pg_temp.expect('لا أخطاء أثناء تشغيل البوتات (الخطأ يظهر في العمود detail إن وُجد)',
+  split_part(pg_temp.ctx('drive'), '|', 2), '');
 select pg_temp.expect('انتهت اللعبة بفائز',
   (select (status::text <> 'in_progress' and winner is not null)::text from public.games where id = pg_temp.ctx('game')::uuid), 'true');
 

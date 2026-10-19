@@ -31,6 +31,8 @@ android {
         // المفتاح العام (publishable/anon) فقط. ممنوع وضع service_role أو secret key هنا.
         buildConfigField("String", "SUPABASE_URL", "\"${cfg("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${cfg("SUPABASE_PUBLISHABLE_KEY")}\"")
+        // معرّف عميل الويب لتسجيل Google (اتركه فارغًا لإخفاء الزر)
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${cfg("GOOGLE_WEB_CLIENT_ID")}\"")
     }
 
     // توقيع نسخة release: يُقرأ من متغيرات البيئة (GitHub Secrets) أو local.properties
@@ -46,6 +48,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // نوقّع نسخة debug بنفس مفتاح release إن وُجد، كي تثبت بصمة SHA-1 لتسجيل Google
+            if (ksPath.isNotBlank()) signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
             if (ksPath.isNotBlank()) signingConfig = signingConfigs.getByName("release")
@@ -76,4 +82,8 @@ dependencies {
     implementation("com.startapp:inapp-sdk:5.+")
     // Realtime (WebSocket)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // تسجيل Google (Credential Manager)
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }

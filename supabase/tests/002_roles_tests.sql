@@ -209,6 +209,8 @@ select pg_temp.expect('التصويت الثالث',
   pg_temp.to_voting(pg_temp.ctx('game'), pg_temp.ctx('red')), 'voting');
 select pg_temp.expect('الأحياء الأربعة يصوّتون ضد الأحمر (يصوّتون مجددًا في دورة جديدة)',
   pg_temp.vote_all(pg_temp.ctx('game'), pg_temp.ctx('red'), pg_temp.ctx('girl'))::text, '4');
+select pg_temp.expect('اكتمال الأصوات يحسم اللعبة (يُستدعى advance_phase)',
+  pg_temp.run_as(pg_temp.ctx('girl'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:ended');
 select pg_temp.expect('فاز المواطنون',
   pg_temp.run_as(pg_temp.v(1), format('select (status::text || winner::text) from public.games where id=%L', pg_temp.ctx('game'))), 'OK:finishedcitizens');
 select pg_temp.expect('3 نتائج تصويت',

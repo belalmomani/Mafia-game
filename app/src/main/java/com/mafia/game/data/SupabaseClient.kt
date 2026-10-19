@@ -34,6 +34,14 @@ class SupabaseClient(context: Context) {
         return saveSession(JSONObject(body))
     }
 
+    /** تسجيل الدخول بحساب Google عبر رمز الهوية (ID token). */
+    suspend fun signInGoogle(idToken: String): String {
+        val (code, body) = http("POST", "/auth/v1/token?grant_type=id_token",
+            JSONObject().put("provider", "google").put("id_token", idToken).toString())
+        if (code !in 200..299) throw ApiException(code, errorText(body))
+        return saveSession(JSONObject(body))
+    }
+
     /** إنشاء حساب جديد ببريد وكلمة مرور. */
     suspend fun signUpEmail(email: String, password: String): String {
         val (code, body) = http("POST", "/auth/v1/signup",

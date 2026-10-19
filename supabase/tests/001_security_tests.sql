@@ -255,6 +255,8 @@ select pg_temp.expect('التصويت في دورة جديدة مسموح لمن
   pg_temp.run_as(pg_temp.ctx('c2'), format('select public.cast_vote(%L,%L)::text', pg_temp.ctx('game'), pg_temp.ctx('mafia'))), 'OK:true');
 select pg_temp.expect('بقية الأحياء يصوّتون (4 أحياء)',
   pg_temp.vote_all(pg_temp.ctx('game'), pg_temp.ctx('mafia'), pg_temp.ctx('girl'))::text, '4');
+select pg_temp.expect('اكتمال الأصوات يحسم اللعبة (يُستدعى advance_phase)',
+  pg_temp.run_as(pg_temp.ctx('girl'), format('select public.advance_phase(%L)', pg_temp.ctx('game'))), 'OK:ended');
 select pg_temp.expect('اللعبة انتهت: فاز المواطنون',
   pg_temp.run_as(pg_temp.u(1), format('select (status::text || winner::text) from public.games where id=%L', pg_temp.ctx('game'))), 'OK:finishedcitizens');
 select pg_temp.expect('نتيجتا تصويت (دورتان)',
@@ -302,6 +304,38 @@ select pg_temp.expect('المطرود لا يعود',
   pg_temp.run_as(pg_temp.u(5), format('select (public.join_room(null,%L)).id::text', pg_temp.ctx('code'))), 'ERR:%kicked_from_room');
 select pg_temp.expect('عدد الأعضاء تحدّث تلقائيًا إلى 4',
   pg_temp.run_as(pg_temp.u(1), format('select member_count::text from public.rooms where id=%L', pg_temp.ctx('room'))), 'OK:4');
+
+-- ---------- 6ب) الإحصاءات والصور والإدارة ----------
+select pg_temp.expect('الإحصاءات سُجّلت لـ 5 لاعبين',
+  (select count(*)::text from public.player_stats where user_id::text like '00000000-0000-4000-8000-0000000000a%'), '5');
+select pg_temp.expect('فاز 4 (المواطنون) وخسر الأحمر',
+  (select sum(wins)::text from public.player_stats where user_id::text like '00000000-0000-4000-8000-0000000000a%'), '4');
+select pg_temp.expect('اللاعب يقرأ الترتيب',
+  pg_temp.run_as(pg_temp.u(2), 'select (count(*) >= 5)::text from public.player_stats'), 'OK:true');
+select pg_temp.expect('لا كتابة مباشرة في الإحصاءات',
+  pg_temp.run_as(pg_temp.u(2), format($q$with u as (update public.player_stats set wins = 99 where user_id=%L returning 1) select count(*)::text from u$q$, pg_temp.u(2))), 'ERR:42501:%');
+select pg_temp.expect('رمز صورة طويل مرفوض',
+  pg_temp.run_as(pg_temp.u(2), $q$select public.set_avatar('123456789')$q$), 'ERR:%invalid_avatar');
+select pg_temp.expect('تعيين صورة رمزية',
+  pg_temp.run_as(pg_temp.u(2), $q$select public.set_avatar('🦊')$q$), 'OK:%');
+select pg_temp.expect('غير المشرف لا يرى البلاغات',
+  pg_temp.run_as(pg_temp.u(2), $q$select count(*)::text from public.admin_list_reports()$q$), 'ERR:%not_admin');
+select pg_temp.expect('is_admin = false للعادي',
+  pg_temp.run_as(pg_temp.u(2), 'select public.is_admin()::text'), 'OK:false');
+select pg_temp.expect('لا قراءة مباشرة لجدول المشرفين',
+  pg_temp.run_as(pg_temp.u(1), 'select count(*)::text from public.app_admins'), 'ERR:42501:%');
+insert into public.app_admins (user_id) values (pg_temp.u(1)::uuid);
+select pg_temp.expect('المشرف يرى البلاغ المفتوح',
+  pg_temp.run_as(pg_temp.u(1), 'select count(*)::text from public.admin_list_reports()'), 'OK:1');
+select pg_temp.setctx('rep', (select id::text from public.reports order by created_at desc limit 1));
+select pg_temp.expect('غير المشرف لا يغيّر حالة البلاغ',
+  pg_temp.run_as(pg_temp.u(2), format($q$select public.admin_set_report_status(%L,'resolved')::text$q$, pg_temp.ctx('rep'))), 'ERR:%not_admin');
+select pg_temp.expect('المشرف يحل البلاغ',
+  pg_temp.run_as(pg_temp.u(1), format($q$select public.admin_set_report_status(%L,'resolved')::text$q$, pg_temp.ctx('rep'))), 'OK:true');
+select pg_temp.expect('anon لا ينفّذ admin_list_reports',
+  has_function_privilege('anon', 'public.admin_list_reports(text,integer)', 'execute')::text, 'false');
+select pg_temp.expect('دالة التنظيف موجودة (لا تُشغَّل هنا كي لا تمسّ بياناتك الحقيقية)',
+  (to_regprocedure('private.cleanup_old_data()') is not null)::text, 'true');
 
 -- ---------- 7) فحوص بنيوية ----------
 select pg_temp.expect('RLS مفعّل على كل جداول public',
