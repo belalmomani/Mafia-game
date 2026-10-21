@@ -1,0 +1,303 @@
+{
+  "project_info": {
+    "project_number": "467283425376",
+    "project_id": "dreams-3e774",
+    "storage_bucket": "dreams-3e774.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:fdfd96424ebf8eca00eb05",
+        "android_client_info": {
+          "package_name": "app.quranichorizons"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:75aa261aea64709300eb05",
+        "android_client_info": {
+          "package_name": "com.belalmomani.bodyjourney"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:fea91dbafc23a6bf00eb05",
+        "android_client_info": {
+          "package_name": "com.ghostthief.game"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-qs0tl8lacmv3f86rp0temttiofv53t35.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ghostthief.game",
+            "certificate_hash": "bd18ee260bcbc2aa7d02c6be9a26afc3e5e56b5d"
+          }
+        },
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:1b36727e982612aa00eb05",
+        "android_client_info": {
+          "package_name": "com.liblink.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:be925a250d19562700eb05",
+        "android_client_info": {
+          "package_name": "com.mafia.game"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:ebc91796c4b581ef00eb05",
+        "android_client_info": {
+          "package_name": "com.momaninews.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:1a7b8b671daa4efd00eb05",
+        "android_client_info": {
+          "package_name": "discussion.com.paper"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-oe5dp51kusgfr988u5mbngf3a5bomfrs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "discussion.com.paper",
+            "certificate_hash": "bd18ee260bcbc2aa7d02c6be9a26afc3e5e56b5d"
+          }
+        },
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:55ee4229c7e3f55c00eb05",
+        "android_client_info": {
+          "package_name": "io.github.belalmomani.mysmartfarm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-qesf4bkamih23ejo7a800fiihpv4vpne.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "io.github.belalmomani.mysmartfarm",
+            "certificate_hash": "bd18ee260bcbc2aa7d02c6be9a26afc3e5e56b5d"
+          }
+        },
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467283425376:android:2a64161dbed1a67d00eb05",
+        "android_client_info": {
+          "package_name": "jo.guide.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467283425376-seu76tqjip34v2a75q7utiknnuqjqsk2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "jo.guide.app",
+            "certificate_hash": "41638a9d886792591da3f5dab1e19e6114167925"
+          }
+        },
+        {
+          "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj90h0zFLNlbeG_4w09Qf3_2IcffwTcDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467283425376-fedgenpabn7do06m8k9it02knfb9enq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
