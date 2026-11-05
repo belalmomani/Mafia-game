@@ -172,6 +172,19 @@ select pg_temp.expect('إزالة البوتات بعد اللعبة',
 select pg_temp.expect('لم يبقَ بوتات',
   (select count(*)::text from public.profiles where is_bot and display_name like 'بوت %' and id::text in (select user_id::text from public.room_members where room_id = pg_temp.ctx('room')::uuid)), '0');
 
+-- حذف الغرفة
+select pg_temp.setctx('droom', pg_temp.run_as(pg_temp.v(2), $q$select (public.create_room('غرفة للحذف','public',4,false)).id::text$q$));
+select pg_temp.expect('غير المالك لا يحذف الغرفة',
+  pg_temp.run_as(pg_temp.v(3), format('select public.delete_room(%L)::text', pg_temp.ctx('droom'))), 'ERR:%not_room_owner');
+select pg_temp.expect('anon لا ينفّذ delete_room',
+  has_function_privilege('anon', 'public.delete_room(uuid)', 'execute')::text, 'false');
+select pg_temp.expect('المالك يحذف غرفته',
+  pg_temp.run_as(pg_temp.v(2), format('select public.delete_room(%L)::text', pg_temp.ctx('droom'))), 'OK:true');
+select pg_temp.expect('الغرفة اختفت',
+  (select count(*)::text from public.rooms where id = pg_temp.ctx('droom')::uuid), '0');
+select pg_temp.expect('حذف غرفة غير موجودة يفشل',
+  pg_temp.run_as(pg_temp.v(2), format('select public.delete_room(%L)::text', pg_temp.ctx('droom'))), 'ERR:%room_not_found');
+
 delete from public.rooms where owner_id in (select id from auth.users where email like '%@test.mafia.invalid');
 delete from auth.users where email like '%@test.mafia.invalid';
 
