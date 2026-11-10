@@ -1,0 +1,68 @@
+name: Build APK from ZIP
+
+# يبني التطبيق من أحدث ملف .zip في جذر المستودع (يُرفع من المتصفح)، فلا حاجة لرفع مجلدات.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unpack the newest ZIP over the repository
+        run: |
+          best=""; bestt=0
+          for z in ./*.zip; do
+            [ -e "$z" ] || continue
+            t="$(git log -1 --format=%ct -- "$z" 2>/dev/null || echo 0)"
+            [ -z "$t" ] && t=0
+            if [ "$t" -ge "$bestt" ]; then best="$z"; bestt="$t"; fi
+          done
+          if [ -z "$best" ]; then
+            echo "لا يوجد ملف zip في جذر المستودع؛ سيُبنى المحتوى الحالي."
+            exit 0
+          fi
+          echo "فك: $best"
+          rm -rf /tmp/proj && mkdir -p /tmp/proj
+          unzip -q -o "$best" -d /tmp/proj
+          src=/tmp/proj
+          if [ "$(ls -A /tmp/proj | wc -l)" = "1" ] && [ -d "/tmp/proj/$(ls /tmp/proj)" ]; then
+            src="/tmp/proj/$(ls /tmp/proj)"
+          fi
+          cp -a "$src"/. ./
+          echo "--- ملفات الواجهة بعد الفك ---"
+          ls -la app/src/main/java/com/mafia/game/ui | head -30
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.13
+
+      - name: Download Tajawal font (SIL OFL)
+        run: |
+          mkdir -p app/src/main/res/font
+          base="https://github.com/google/fonts/raw/main/ofl/tajawal"
+          for pair in Regular:regular Medium:medium Bold:bold ExtraBold:extrabold; do
+            src="${pair%%:*}"; dst="${pair##*:}"
+            out="app/src/main/res/font/tajawal_${dst}.ttf"
+            if curl -fsSL "$base/Tajawal-${src}.ttf" -o "$out" && [ "$(stat -c%s "$out")" -gt 10000 ]; then
+              echo "OK $out"
+            else
+              rm -f "$out"
+            fi
+          done
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mafia-apk
+          path: app/build/outputs/apk/debug/app-debug.apk

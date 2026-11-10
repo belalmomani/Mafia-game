@@ -129,6 +129,18 @@ begin
 end $$;
 
 -- ---------- 3) بدء اللعبة وسرية الأدوار ----------
+-- رموز الإشعارات لكل اللاعبين قبل البدء
+select pg_temp.expect('تسجيل رمز إشعار للاعب ' || i,
+  pg_temp.run_as(pg_temp.u(i), format($q$select public.register_push_token(%L)::text$q$, 'test-push-token-padding-' || i)), 'OK:true')
+from generate_series(1, 5) i;
+select pg_temp.expect('رمز قصير مرفوض',
+  pg_temp.run_as(pg_temp.u(1), $q$select public.register_push_token('short')::text$q$), 'ERR:%invalid_token');
+select pg_temp.expect('anon لا يسجّل رمزًا',
+  has_function_privilege('anon', 'public.register_push_token(text)', 'execute')::text, 'false');
+select pg_temp.expect('العميل لا يقرأ push_tokens',
+  pg_temp.run_as(pg_temp.u(1), 'select count(*)::text from public.push_tokens'), 'ERR:42501:%');
+select pg_temp.expect('العميل لا يقرأ push_outbox',
+  pg_temp.run_as(pg_temp.u(1), 'select count(*)::text from public.push_outbox'), 'ERR:42501:%');
 select pg_temp.setctx('game', pg_temp.run_as(pg_temp.u(1), format('select public.start_game(%L, 30, 30, 30, true)::text', pg_temp.ctx('room'))));
 select pg_temp.setctx('mafia', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'red_mafia'));
 select pg_temp.setctx('girl',  (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'girl'));
@@ -136,6 +148,8 @@ select pg_temp.setctx('c1', (select user_id::text from public.game_secrets where
 select pg_temp.setctx('c2', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'citizen' order by user_id desc limit 1));
 select pg_temp.setctx('c3', (select user_id::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid and role = 'citizen' and user_id::text not in (pg_temp.ctx('c1'), pg_temp.ctx('c2')) limit 1));
 
+select pg_temp.expect('بدء اللعبة أضاف إشعار «دورك في الكلام» لصندوق الإرسال',
+  (select (count(*) >= 1)::text from public.push_outbox where title = 'دورك في الكلام' and user_ids && array(select id from public.profiles where id::text like '00000000-0000-4000-8000-0000000000a%')), 'true');
 select pg_temp.expect('وُزّعت 5 أدوار (مافيا أحمر واحد + بنت + 3 مواطنين)',
   (select count(*)::text from public.game_secrets where game_id = pg_temp.ctx('game')::uuid), '5');
 select pg_temp.expect('اللعبة تبدأ بمرحلة التبرير',

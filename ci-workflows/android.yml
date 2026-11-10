@@ -1,0 +1,45 @@
+name: Android Debug Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.13
+      - name: Write google-services.json from secret (optional)
+        env:
+          GSJ: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GSJ" ]; then printf '%s' "$GSJ" > app/google-services.json; fi
+      - name: Download Tajawal font (SIL OFL)
+        run: |
+          mkdir -p app/src/main/res/font
+          base="https://github.com/google/fonts/raw/main/ofl/tajawal"
+          for pair in Regular:regular Medium:medium Bold:bold ExtraBold:extrabold; do
+            src="${pair%%:*}"; dst="${pair##*:}"
+            out="app/src/main/res/font/tajawal_${dst}.ttf"
+            if curl -fsSL "$base/Tajawal-${src}.ttf" -o "$out" && [ "$(stat -c%s "$out")" -gt 10000 ]; then
+              echo "OK $out"
+            else
+              echo "::warning::تعذر تنزيل Tajawal-${src}؛ سيُستعمل خط النظام"
+              rm -f "$out"
+            fi
+          done
+          ls -la app/src/main/res/font || true
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mafia-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk

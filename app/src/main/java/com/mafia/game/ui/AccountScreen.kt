@@ -81,6 +81,12 @@ fun AccountScreen(client: SupabaseClient, onBack: () -> Unit) {
             OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(),
                 onClick = { act { signInWithGoogle(ctx, client) } }) { Text("الدخول بحساب Google") }
         }
+        if (current != null) {
+            OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                onClick = { act { client.rpc("claim_admin"); "تم تفعيل صلاحية المشرف. ارجع للرئيسية." } }) {
+                Text("🛡️ تفعيل صلاحية المشرف (لصاحب البريد المخصص)")
+            }
+        }
         if (msg.isNotBlank()) Text(msg)
         SelectionContainer { Text("معرّف حسابك (اضغط مطولًا للنسخ): ${client.currentUserId() ?: "-"}", style = MaterialTheme.typography.bodySmall) }
         Text("ملاحظة: إن طلب Supabase تأكيد البريد فسيصلك رابط. يمكن للمالك تعطيل «Confirm email» من لوحة Supabase لتجربة أسرع.",

@@ -229,6 +229,9 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
         "${it.game.optString("phase")}|${it.game.optInt("round_no")}|${it.game.optInt("speech_idx")}|${it.game.optInt("vote_cycle")}|${it.game.optString("status")}"
     }
     var lastKey by remember { mutableStateOf<String?>(null) }
+    val atmPhase = s?.let { if (it.game.optString("status") == "in_progress") it.game.optString("phase") else "" } ?: ""
+    LaunchedEffect(atmPhase) { Atmosphere.phase = atmPhase }
+    DisposableEffect(Unit) { onDispose { Atmosphere.phase = "" } }
     LaunchedEffect(stateKey) {
         val sn = snap
         if (stateKey != null && sn != null) {
@@ -276,19 +279,33 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
         val left = if (endsMs != null) ((endsMs - nowMs) / 1000).coerceAtLeast(0L) else 0L
 
         // ---------- رأس الصفحة ----------
-        val phaseAr = when (phase) { "night" -> "الليل"; "day" -> "التبرير"; "voting" -> "التصويت"; else -> "انتهت" }
+        val phaseAr = when (phase) { "night" -> "🌙 الليل"; "day" -> "🎙️ التبرير"; "voting" -> "🗳️ التصويت"; else -> "🏁 انتهت" }
+        val totalSecs = when (phase) {
+            "night" -> g.optInt("night_seconds", 60)
+            "day" -> g.optInt("speech_seconds", 120)
+            "voting" -> g.optInt("vote_seconds", 60)
+            else -> 60
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
-                Text("$phaseAr — الجولة $round", style = MaterialTheme.typography.titleLarge)
-                if (inProgress) Text("الوقت المتبقي: $left ثانية")
+                Text(phaseAr, style = MaterialTheme.typography.headlineSmall, color = Palette.Gold)
+                Text("الجولة $round", style = MaterialTheme.typography.titleMedium)
             }
-            if (my != null) OutlinedButton(onClick = { showRole = true }) { Text("دوري") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (inProgress) PhaseTimer(left, totalSecs)
+                if (my != null) OutlinedButton(onClick = { showRole = true }) { Text("دوري") }
+            }
         }
         if (msg.isNotBlank()) Text(msg, color = MaterialTheme.colorScheme.error)
         s.voiceLink?.let { link ->
             OutlinedButton(onClick = { runCatching { uriHandler.openUri(link) } }, modifier = Modifier.fillMaxWidth()) {
                 Text("🎙️ فتح الغرفة الصوتية")
             }
+        }
+        if (inProgress && my != null) {
+            val vOrder = g.optJSONArray("speech_order")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+            val vSpeaker = vOrder.getOrNull(g.optInt("speech_idx")) ?: ""
+            VoicePanel(client, gameId, "$phase|$round|$vSpeaker|${meP?.alive}")
         }
         if (inProgress && g.strOrNull("pending_pull") != null) {
             Text("الولد يختار الآن من يسحبه معه...")
@@ -301,8 +318,7 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                 title = { Text("دورك: ${Roles.nameAr(my.role)}") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Image(painterResource(Roles.cardRes(my.role)), contentDescription = Roles.nameAr(my.role),
-                            modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+                        FlipCard(my.role)
                         if (my.role == "silencer") {
                             Text("قدرتك: تُسكت لاعبًا كل ليلة، فلا يُمنح دور كلام في اليوم التالي (ويبقى يصوّت).")
                         }

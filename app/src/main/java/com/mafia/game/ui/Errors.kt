@@ -37,6 +37,11 @@ fun friendlyError(e: Exception): String {
         "not_your_turn" to "ليس دورك في الكلام الآن",
         "not_admin" to "هذه الشاشة للمشرفين فقط",
         "invalid_avatar" to "رمز الصورة غير صالح",
+        "not_lab_game" to "هذه ليست لعبة مختبر",
+        "not_lab_player" to "هذا اللاعب ليس من المختبر",
+        "not_allowed" to "هذا البريد غير مخوّل أو غير مؤكَّد",
+        "admin_exists" to "يوجد مشرف مسجل بالفعل",
+        "invalid_action" to "إجراء غير معروف",
         "not_boy" to "هذه القدرة للولد فقط",
         "Anonymous sign-ins are disabled" to "فعّل Anonymous sign-ins في Supabase"
     )

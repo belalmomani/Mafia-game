@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- قبعة مافيا مبسّطة -->
+    <path
+        android:fillColor="#E8E1D0"
+        android:pathData="M28,64 L80,64 C80,69 71,71 54,71 C37,71 28,69 28,64 Z" />
+    <path
+        android:fillColor="#E8E1D0"
+        android:pathData="M37,64 L39,46 C39,40 45,36 54,36 C63,36 69,40 69,46 L71,64 Z" />
+    <path
+        android:fillColor="#B3261E"
+        android:pathData="M38.2,57 L69.8,57 L70.2,62 L37.8,62 Z" />
+</vector>

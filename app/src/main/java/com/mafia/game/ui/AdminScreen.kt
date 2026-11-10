@@ -37,7 +37,7 @@ private fun reasonAr(code: String) = when (code) {
 }
 
 @Composable
-fun AdminScreen(client: SupabaseClient, onBack: () -> Unit) {
+fun AdminScreen(client: SupabaseClient, onLab: () -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var filter by remember { mutableStateOf("open") }
     var rows by remember { mutableStateOf(listOf<ReportRow>()) }
@@ -68,7 +68,9 @@ fun AdminScreen(client: SupabaseClient, onBack: () -> Unit) {
     }
 
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("🛡️ البلاغات", style = MaterialTheme.typography.titleLarge)
+        Text("🛡️ لوحة الإدارة", style = MaterialTheme.typography.titleLarge)
+        Button(onClick = onLab, modifier = Modifier.fillMaxWidth()) { Text("🧪 مختبر التجربة (أتحكم بلاعبين وهميين)") }
+        Text("البلاغات", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("open" to "مفتوحة", "reviewing" to "قيد المراجعة", "resolved" to "محلولة", "all" to "الكل").forEach { (k, label) ->
                 if (filter == k) Button(onClick = { filter = k }) { Text(label) }

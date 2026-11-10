@@ -8,3 +8,6 @@ build/
 *.jks
 *.keystore
 .env
+
+# ملف Firebase: نحقنه من GitHub Secret (GOOGLE_SERVICES_JSON) بدل رفعه
+app/google-services.json

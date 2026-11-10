@@ -17,19 +17,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.13
-      - name: Decode keystore (optional)
+      - name: Write google-services.json from secret (optional)
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          GSJ: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"; fi
+          if [ -n "$GSJ" ]; then printf '%s' "$GSJ" > app/google-services.json; fi
+      - name: Download Tajawal font (SIL OFL)
+        run: |
+          mkdir -p app/src/main/res/font
+          base="https://github.com/google/fonts/raw/main/ofl/tajawal"
+          for pair in Regular:regular Medium:medium Bold:bold ExtraBold:extrabold; do
+            src="${pair%%:*}"; dst="${pair##*:}"
+            out="app/src/main/res/font/tajawal_${dst}.ttf"
+            if curl -fsSL "$base/Tajawal-${src}.ttf" -o "$out" && [ "$(stat -c%s "$out")" -gt 10000 ]; then
+              echo "OK $out"
+            else
+              echo "::warning::تعذر تنزيل Tajawal-${src}؛ سيُستعمل خط النظام"
+              rm -f "$out"
+            fi
+          done
+          ls -la app/src/main/res/font || true
       - name: Build debug APK
-        env:
-          KEYSTORE_PATH: ${{ secrets.KEYSTORE_BASE64 != '' && format('{0}/release.jks', runner.temp) || '' }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: gradle :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:

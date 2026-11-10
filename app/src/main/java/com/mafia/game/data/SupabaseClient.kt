@@ -113,6 +113,12 @@ class SupabaseClient(context: Context) {
         return ok(http("POST", "/rest/v1/rpc/$name", body.toString(), auth = true))
     }
 
+    /** استدعاء دالة Edge (مثل voice-token) بصلاحيات المستخدم. */
+    suspend fun callFunction(name: String, body: JSONObject): String {
+        ensureSession()
+        return ok(http("POST", "/functions/v1/$name", body.toString(), auth = true))
+    }
+
     fun currentUserId(): String? = prefs.getString("user_id", null)
 
     fun signOutLocal() = prefs.edit().clear().apply()

@@ -1,3 +1,5 @@
 <resources>
-    <style name="Theme.MafiaGame" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.MafiaGame" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0E0E14</item>
+    </style>
 </resources>

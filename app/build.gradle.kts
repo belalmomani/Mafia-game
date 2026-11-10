@@ -6,6 +6,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// خدمات Firebase تُفعَّل فقط إن وُجد الملف app/google-services.json
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // الأولوية: local.properties ثم متغيرات البيئة (GitHub secrets) ثم supabase.properties (المرفوع في المستودع).
 fun loadProps(file: String) = Properties().apply {
     val f = rootProject.file(file)
@@ -77,9 +82,15 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // Start.io (StartApp) — بانر إعلاني صغير أسفل الشاشة
     implementation("com.startapp:inapp-sdk:5.+")
+    // الإشعارات الفورية (FCM)
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    // الصوت (LiveKit)
+    implementation("io.livekit:livekit-android:2.+")
     // Realtime (WebSocket)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // تسجيل Google (Credential Manager)
