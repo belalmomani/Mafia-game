@@ -2,6 +2,7 @@ package com.mafia.game.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.unit.sp
+import com.mafia.game.BuildConfig
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -73,6 +74,7 @@ fun HomeScreen(
     var invites by remember { mutableStateOf(listOf<InviteItem>()) }
     var isAdmin by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<RoomItem?>(null) }
+    var activeRoomId by remember { mutableStateOf<String?>(null) }
     var msg by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var myName by remember { mutableStateOf("") }
@@ -98,6 +100,11 @@ fun HomeScreen(
         rooms = parseRooms(client.get(
             "/rest/v1/rooms?select=id,name,member_count,max_players&visibility=eq.public&status=eq.open&order=created_at.desc&limit=30"))
         isAdmin = runCatching { client.rpc("is_admin").trim() == "true" }.getOrDefault(false)
+        activeRoomId = runCatching {
+            JSONArray(client.get(
+                "/rest/v1/game_players?select=game_id,games!inner(room_id,status)&user_id=eq.$uid&games.status=eq.in_progress&limit=1"
+            )).optJSONObject(0)?.optJSONObject("games")?.strOrNull("room_id")
+        }.getOrNull()
         invites = JSONArray(client.get(
             "/rest/v1/room_invites?select=id,room_id,room_name&invitee_id=eq.$uid&status=eq.pending&expires_at=gt.${java.time.Instant.now()}"
         )).objects().map { InviteItem(it.getString("id"), it.getString("room_id"), it.optString("room_name")) }
@@ -125,6 +132,14 @@ fun HomeScreen(
             Text("لعبة الخداع والذكاء: اجمع أصدقاءك وابدأ", style = MaterialTheme.typography.bodyMedium, color = c.muted)
         }
         if (msg.isNotBlank()) StatusBanner(msg)
+
+        // لعبة جارية: متابعة بضغطة واحدة
+        activeRoomId?.let { rid ->
+            SectionCard("لعبة جارية الآن", icon = "🎮", subtitle = "أنت لاعب في لعبة لم تنتهِ بعد") {
+                PrimaryButton("متابعة اللعبة", modifier = Modifier.fillMaxWidth(), icon = Icons.AutoMirrored.Filled.ArrowForward,
+                    enabled = !busy, onClick = { onOpenRoom(rid) })
+            }
+        }
 
         deleteTarget?.let { target ->
             AlertDialog(
@@ -265,6 +280,8 @@ fun HomeScreen(
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+        Text("النسخة: ${BuildConfig.BUILD_LABEL}", style = MaterialTheme.typography.bodySmall, color = c.muted,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }
 

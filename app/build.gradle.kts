@@ -37,6 +37,8 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${cfg("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${cfg("SUPABASE_PUBLISHABLE_KEY")}\"")
         // معرّف عميل الويب لتسجيل Google (اتركه فارغًا لإخفاء الزر)
+        // رقم البناء الظاهر في التطبيق (يضبطه GitHub Actions)
+        buildConfigField("String", "BUILD_LABEL", "\"${cfg("BUILD_LABEL").ifBlank { "local" }}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${cfg("GOOGLE_WEB_CLIENT_ID")}\"")
     }
 

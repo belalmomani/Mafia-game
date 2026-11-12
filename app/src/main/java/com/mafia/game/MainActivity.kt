@@ -115,7 +115,8 @@ private fun App(client: SupabaseClient) {
                         is Screen.LabGame -> LabGameScreen(client, s.gameId, onBack = { screen = Screen.Lab })
                         is Screen.Lobby -> LobbyScreen(client, s.roomId, onBack = { screen = Screen.Home },
                             onGame = { screen = Screen.Game(it, s.roomId) })
-                        is Screen.Game -> GameScreen(client, s.gameId, onExit = { screen = Screen.Home })
+                        is Screen.Game -> GameScreen(client, s.gameId, onExit = { screen = Screen.Home },
+                            onRematch = { screen = Screen.Lobby(it) })
                     }
                 }
                 AdBanner(Modifier.fillMaxWidth())

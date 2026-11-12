@@ -173,7 +173,7 @@ private fun ChatPanel(title: String, msgs: List<Msg>, names: Map<String, String>
 }
 
 @Composable
-fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
+fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit, onRematch: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var snap by remember { mutableStateOf<Snap?>(null) }
     var msg by remember { mutableStateOf("") }
@@ -350,7 +350,10 @@ fun GameScreen(client: SupabaseClient, gameId: String, onExit: () -> Unit) {
                     s.players.forEach { p -> Text("${p.name}: ${Roles.nameAr(p.role)}" + if (p.alive) "" else " (ميت)") }
                 }
             }
-            Button(onClick = onExit, modifier = Modifier.fillMaxWidth()) { Text("العودة للقائمة") }
+            Button(onClick = { onRematch(g.optString("room_id")) }, modifier = Modifier.fillMaxWidth()) {
+                Text("🔁 العودة إلى الغرفة (للعب من جديد)")
+            }
+            OutlinedButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) { Text("العودة للقائمة") }
         } else if (meP != null && !meP.alive) {
             if (g.strOrNull("pending_pull") == me) {
                 PickPanel("الولد: اسحب لاعبًا معك الآن (مهلة قصيرة، وإلا يُنفَّذ اختيارك المسبق)",

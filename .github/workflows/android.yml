@@ -38,7 +38,9 @@ jobs:
           done
           ls -la app/src/main/res/font || true
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon
+        run: |
+          export BUILD_LABEL="build ${{ github.run_number }} - $(date -u +%F)"
+          gradle :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: mafia-debug-apk
